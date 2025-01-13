@@ -5,6 +5,12 @@ use std::{
     simd::{cmp::SimdPartialOrd, u8x16, Simd},
 };
 
+#[cfg(feature = "serde")]
+pub mod serde;
+
+#[cfg(feature = "serde")]
+pub use serde::{deserialize, serialize};
+
 const SIMD_CHUNK_SIZE: usize = 16;
 
 #[inline(always)]

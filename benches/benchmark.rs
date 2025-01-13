@@ -2,7 +2,6 @@ use criterion::{
     black_box, criterion_group, criterion_main, BenchmarkId, Criterion,
     Throughput,
 };
-
 const DATA: &[u8; 1024 * 1024] = include_bytes!("seed.bin");
 
 fn bench_compare_hex(c: &mut Criterion) {
@@ -26,7 +25,59 @@ fn bench_compare_hex(c: &mut Criterion) {
     group.bench_function(BenchmarkId::new("decode", "muhex"), |b| {
         b.iter(|| muhex::decode(black_box(&data)).unwrap())
     });
+
+    group.finish();
 }
 
-criterion_group!(benches, bench_compare_hex);
+#[cfg(feature = "serde")]
+fn bench_serde(c: &mut Criterion) {
+    let test_data = DATA.to_vec();
+
+    let mut group = c.benchmark_group("serde");
+    group.throughput(Throughput::Bytes(DATA.len() as u64));
+
+    group.bench_function(BenchmarkId::new("serialize", "muhex"), |b| {
+        b.iter(|| {
+            muhex::serde::serialize(
+                black_box(&test_data),
+                serde_json::value::Serializer,
+            )
+            .unwrap()
+        })
+    });
+
+    group.bench_function(BenchmarkId::new("serialize", "hex"), |b| {
+        b.iter(|| {
+            hex::serde::serialize(
+                black_box(&test_data),
+                serde_json::value::Serializer,
+            )
+            .unwrap()
+        })
+    });
+
+    let serialized =
+        muhex::serialize(&test_data, serde_json::value::Serializer).unwrap();
+
+    group.bench_function(BenchmarkId::new("deserialize", "muhex"), |b| {
+        b.iter(|| {
+            muhex::serde::deserialize::<_, Vec<u8>>(black_box(&serialized))
+                .unwrap()
+        })
+    });
+
+    group.bench_function(BenchmarkId::new("deserialize", "hex"), |b| {
+        b.iter(|| {
+            hex::serde::deserialize::<_, Vec<u8>>(black_box(&serialized))
+                .unwrap()
+        })
+    });
+
+    group.finish();
+}
+
+#[cfg(not(feature = "serde"))]
+fn bench_serde(_c: &mut Criterion) {}
+
+criterion_group!(benches, bench_compare_hex, bench_serde);
 criterion_main!(benches);
