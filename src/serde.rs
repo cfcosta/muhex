@@ -1,9 +1,10 @@
 use std::fmt;
 
-use serde::{Deserializer, Serializer, de};
+use serde::{de, Deserializer, Serializer};
 
 use crate::{decode, encode};
 
+#[inline(always)]
 pub fn serialize<S, T>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
@@ -13,6 +14,7 @@ where
     serializer.serialize_str(&hex_string)
 }
 
+#[inline(always)]
 pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
 where
     D: Deserializer<'de>,
