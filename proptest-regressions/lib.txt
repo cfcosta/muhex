@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 8ac3f178584835db91fe7140f7861c4800387cf6c90a9487e066f77e890cf39c # shrinks to input = _TestHexEncodeParityArgs { input: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 154, 0] }
+cc 1affc6485b4c843bf1db694ab4aff8a81e83e471bf1b090206cbed51ce593816 # shrinks to input = _TestHexRoundtripArgs { input: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 154] }
+cc 258a8b4b687d846e69f74cc25234303408d46e712e8e7c65f4055206da624239 # shrinks to input = _TestHexRoundtripParityArgs { input: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 42] }
+cc 9b9216684956f2b4ab3ec36afccf5d73bb1ede6942dabae7f20f838622d9a1ae # shrinks to input = _TestHexDecodeParityArgs { input: "A𒒀aa ®𓀀ݍ𞹧𑍝¡00aa¡\u{113e1}🌀\u{b82} \u{1ab0}𑌏 ®\u{1e023}a®A0 " }
