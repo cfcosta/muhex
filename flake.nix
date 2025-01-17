@@ -2,6 +2,10 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    pre-commit-hooks = {
+      url = "github:cachix/pre-commit-hooks.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     treefmt-nix = {
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -16,6 +20,7 @@
     {
       nixpkgs,
       flake-utils,
+      pre-commit-hooks,
       rust-overlay,
       treefmt-nix,
       ...
@@ -48,15 +53,7 @@
 
               formatter = {
                 nixfmt.options = [ "--strict" ];
-
-                rustfmt = {
-                  package = rust;
-
-                  options = [
-                    "--config-path"
-                    (toString ./rustfmt.toml)
-                  ];
-                };
+                rustfmt.package = rust;
               };
             };
 
@@ -66,6 +63,19 @@
               rustfmt.enable = true;
             };
           }).config.build.wrapper;
+
+        pre-commit-check = pre-commit-hooks.lib.${system}.run {
+          src = ./.;
+
+          hooks = {
+            deadnix.enable = true;
+            nixfmt-rfc-style.enable = true;
+            treefmt = {
+              enable = true;
+              package = muhex-formatter;
+            };
+          };
+        };
 
         packages.default = rustPlatform.buildRustPackage {
           name = "muhex";
@@ -77,6 +87,8 @@
         inherit packages;
 
         formatter = muhex-formatter;
+
+        checks = { inherit pre-commit-check; };
 
         devShells.default = mkShell {
           name = "muhex";
