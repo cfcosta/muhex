@@ -1,12 +1,19 @@
+use std::time::Duration;
+
 use criterion::{
-    black_box, criterion_group, criterion_main, BenchmarkId, Criterion,
+    BenchmarkId,
+    Criterion,
     Throughput,
+    black_box,
+    criterion_group,
+    criterion_main,
 };
 const DATA: &[u8; 1024 * 1024] = include_bytes!("seed.bin");
 
 fn bench_compare_hex(c: &mut Criterion) {
     let mut group = c.benchmark_group("encode/decode 1M");
     group.throughput(Throughput::Bytes(DATA.len() as u64));
+    group.measurement_time(Duration::from_secs(30));
 
     group.bench_function(BenchmarkId::new("encode", "hex"), |b| {
         b.iter(|| hex::encode(black_box(&DATA)))
@@ -35,6 +42,7 @@ fn bench_serde(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("serde");
     group.throughput(Throughput::Bytes(DATA.len() as u64));
+    group.measurement_time(Duration::from_secs(30));
 
     group.bench_function(BenchmarkId::new("serialize", "muhex"), |b| {
         b.iter(|| {
