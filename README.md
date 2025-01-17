@@ -30,26 +30,28 @@ println!("{}", muhex::decode("48656c6c6f20776f726c6421")?); // Prints "Hello wor
 Command: `RUSTFLAGS="-C target-cpu=native -C target-feature=+avx2,+avx,+sse2" cargo bench --all-feature`
 Machine: Ryzen 7950X3D 128GB DDR5 RAM
 
+Here are the numbers for the `hex` crate, as reference:
+
 ```
-encode/decode 1M/encode/hex
-                        time:   [2.6163 ms 2.6413 ms 2.6640 ms]
-                        thrpt:  [375.38 MiB/s 378.60 MiB/s 382.21 MiB/s]
-encode/decode 1M/encode/muhex
-                        time:   [51.094 µs 51.213 µs 51.337 µs]
-                        thrpt:  [19.023 GiB/s 19.069 GiB/s 19.113 GiB/s]
-encode/decode 1M/decode/hex
-                        time:   [6.0813 ms 6.0959 ms 6.1117 ms]
-                        thrpt:  [163.62 MiB/s 164.04 MiB/s 164.44 MiB/s]
-encode/decode 1M/decode/muhex
-                        time:   [4.7397 ms 4.7804 ms 4.8267 ms]
-                        thrpt:  [207.18 MiB/s 209.19 MiB/s 210.98 MiB/s]
-serde/serialize/muhex   time:   [1.0163 ms 1.0214 ms 1.0275 ms]
-                        thrpt:  [973.25 MiB/s 979.01 MiB/s 983.95 MiB/s]
-serde/serialize/hex     time:   [3.3410 ms 3.3546 ms 3.3733 ms]
-                        thrpt:  [296.45 MiB/s 298.10 MiB/s 299.31 MiB/s]
-serde/deserialize/muhex time:   [4.6475 ms 4.6671 ms 4.6876 ms]
-                        thrpt:  [213.33 MiB/s 214.26 MiB/s 215.17 MiB/s]
-Benchmarking serde/deserialize/hex: Warming up for 3.0000 s
-serde/deserialize/hex   time:   [6.2650 ms 6.2924 ms 6.3197 ms]
-                        thrpt:  [158.23 MiB/s 158.92 MiB/s 159.62 MiB/s]
+encdec/encode/hex       time:   [3.1269 ms 3.1323 ms 3.1379 ms]
+                        thrpt:  [318.68 MiB/s 319.25 MiB/s 319.81 MiB/s]
+encdec/decode/hex       time:   [6.0685 ms 6.0860 ms 6.1060 ms]
+                        thrpt:  [163.77 MiB/s 164.31 MiB/s 164.79 MiB/s]
+serde/serialize/hex     time:   [4.1296 ms 4.1716 ms 4.2177 ms]
+                        thrpt:  [237.10 MiB/s 239.72 MiB/s 242.15 MiB/s]
+serde/deserialize/hex   time:   [6.2931 ms 6.3139 ms 6.3362 ms]
+                        thrpt:  [157.82 MiB/s 158.38 MiB/s 158.90 MiB/s]
+```
+
+Here is our results:
+
+```
+encdec/encode/muhex     time:   [57.927 µs 58.206 µs 58.461 µs]
+                        thrpt:  [16.704 GiB/s 16.778 GiB/s 16.858 GiB/s]
+encdec/decode/muhex     time:   [4.9279 ms 4.9551 ms 4.9781 ms]
+                        thrpt:  [200.88 MiB/s 201.81 MiB/s 202.93 MiB/s]
+serde/serialize/muhex   time:   [1.0238 ms 1.0279 ms 1.0324 ms]
+                        thrpt:  [968.65 MiB/s 972.87 MiB/s 976.74 MiB/s]
+serde/deserialize/muhex time:   [4.7140 ms 4.7272 ms 4.7411 ms]
+                        thrpt:  [210.92 MiB/s 211.54 MiB/s 212.13 MiB/s]
 ```

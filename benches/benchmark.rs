@@ -4,10 +4,11 @@ use criterion::{
     black_box, criterion_group, criterion_main, BenchmarkId, Criterion,
     Throughput,
 };
+
 const DATA: &[u8; 1024 * 1024] = include_bytes!("seed.bin");
 
 fn bench_compare_hex(c: &mut Criterion) {
-    let mut group = c.benchmark_group("encode/decode 1M");
+    let mut group = c.benchmark_group("encdec");
     group.throughput(Throughput::Bytes(DATA.len() as u64));
     group.measurement_time(Duration::from_secs(30));
 
@@ -40,16 +41,6 @@ fn bench_serde(c: &mut Criterion) {
     group.throughput(Throughput::Bytes(DATA.len() as u64));
     group.measurement_time(Duration::from_secs(30));
 
-    group.bench_function(BenchmarkId::new("serialize", "muhex"), |b| {
-        b.iter(|| {
-            muhex::serde::serialize(
-                black_box(&test_data),
-                serde_json::value::Serializer,
-            )
-            .unwrap()
-        })
-    });
-
     group.bench_function(BenchmarkId::new("serialize", "hex"), |b| {
         b.iter(|| {
             hex::serde::serialize(
@@ -60,19 +51,29 @@ fn bench_serde(c: &mut Criterion) {
         })
     });
 
-    let serialized =
-        muhex::serialize(&test_data, serde_json::value::Serializer).unwrap();
-
-    group.bench_function(BenchmarkId::new("deserialize", "muhex"), |b| {
+    group.bench_function(BenchmarkId::new("serialize", "muhex"), |b| {
         b.iter(|| {
-            muhex::serde::deserialize::<_, Vec<u8>>(black_box(&serialized))
-                .unwrap()
+            muhex::serde::serialize(
+                black_box(&test_data),
+                serde_json::value::Serializer,
+            )
+            .unwrap()
         })
     });
+
+    let serialized =
+        muhex::serialize(&test_data, serde_json::value::Serializer).unwrap();
 
     group.bench_function(BenchmarkId::new("deserialize", "hex"), |b| {
         b.iter(|| {
             hex::serde::deserialize::<_, Vec<u8>>(black_box(&serialized))
+                .unwrap()
+        })
+    });
+
+    group.bench_function(BenchmarkId::new("deserialize", "muhex"), |b| {
+        b.iter(|| {
+            muhex::serde::deserialize::<_, Vec<u8>>(black_box(&serialized))
                 .unwrap()
         })
     });
