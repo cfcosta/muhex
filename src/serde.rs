@@ -1,5 +1,6 @@
-use serde::{de, Deserializer, Serializer};
 use std::fmt;
+
+use serde::{Deserializer, Serializer, de};
 
 use crate::{decode, encode};
 
@@ -40,25 +41,50 @@ where
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
     use serde::{Deserialize, Serialize};
 
-    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    #[derive(Debug, Serialize, Deserialize, PartialEq)]
     struct TestStruct {
-        #[serde(with = "super")]
+        #[serde(with = "crate::serde")]
         data: Vec<u8>,
     }
 
-    #[test]
-    fn test_serde_roundtrip() {
-        let original = TestStruct {
-            data: vec![0x01, 0x02, 0x03, 0xff],
-        };
-
-        let serialized = serde_json::to_string(&original).unwrap();
-        assert_eq!(serialized, r#"{"data":"010203ff"}"#);
-
+    #[test_strategy::proptest]
+    fn test_serde_roundtrip(data: Vec<u8>) {
+        let test_struct = TestStruct { data };
+        let serialized = serde_json::to_string(&test_struct).unwrap();
         let deserialized: TestStruct =
             serde_json::from_str(&serialized).unwrap();
-        assert_eq!(deserialized, original);
+        prop_assert_eq!(test_struct, deserialized);
+    }
+
+    #[test_strategy::proptest]
+    fn test_serialize_parity(data: Vec<u8>) {
+        let mut serializer = serde_json::Serializer::new(Vec::new());
+
+        prop_assert_eq!(
+            super::serialize(&data, &mut serializer).map_err(|_| ()),
+            hex::serde::serialize(
+                &data,
+                &mut serde_json::Serializer::new(Vec::new())
+            )
+            .map_err(|_| ())
+        );
+    }
+
+    #[test_strategy::proptest]
+    fn test_deserialize_parity(data: Vec<u8>) {
+        let hex_json = serde_json::to_string(&hex::encode(&data)).unwrap();
+
+        let mut our_de = serde_json::Deserializer::from_str(&hex_json);
+        let mut hex_de = serde_json::Deserializer::from_str(&hex_json);
+
+        let our_result: Result<Vec<u8>, _> =
+            super::deserialize(&mut our_de).map_err(|_| ());
+        let hex_result: Result<Vec<u8>, _> =
+            hex::serde::deserialize(&mut hex_de).map_err(|_| ());
+
+        prop_assert_eq!(our_result, hex_result);
     }
 }
