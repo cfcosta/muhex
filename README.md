@@ -27,31 +27,20 @@ println!("{}", muhex::decode("48656c6c6f20776f726c6421")?); // Prints "Hello wor
 
 ## Benchmarks
 
-Command: `RUSTFLAGS="-C target-cpu=native -C target-feature=+avx2,+avx,+sse2" cargo bench --all-feature`
-Machine: Ryzen 7950X3D 128GB DDR5 RAM
+This is a benchmark on my own machine against the `hex` crate.
 
-Here are the numbers for the `hex` crate, as reference:
+* Command: `RUSTFLAGS="-C target-cpu=native -C target-feature=+avx2,+avx,+sse2" cargo bench --all-feature`
+* Machine: Ryzen 7950X3D 128GB DDR5 RAM
 
-```
-encdec/encode/hex       time:   [3.1269 ms 3.1323 ms 3.1379 ms]
-                        thrpt:  [318.68 MiB/s 319.25 MiB/s 319.81 MiB/s]
-encdec/decode/hex       time:   [6.0685 ms 6.0860 ms 6.1060 ms]
-                        thrpt:  [163.77 MiB/s 164.31 MiB/s 164.79 MiB/s]
-serde/serialize/hex     time:   [4.1296 ms 4.1716 ms 4.2177 ms]
-                        thrpt:  [237.10 MiB/s 239.72 MiB/s 242.15 MiB/s]
-serde/deserialize/hex   time:   [6.2931 ms 6.3139 ms 6.3362 ms]
-                        thrpt:  [157.82 MiB/s 158.38 MiB/s 158.90 MiB/s]
-```
+| Operation    | Implementation | Time      | Throughput    | Speedup |
+|-------------|----------------|-----------|---------------|---------|
+| Encode      | hex            | 3.089 ms  | 323.67 MiB/s  | 1x      |
+| Encode      | muhex          | 52.23 µs  | 18.696 GiB/s  | ~57x    |
+| Decode      | hex            | 6.172 ms  | 162.03 MiB/s  | 1x      |
+| Decode      | muhex          | 160.97 µs | 6.067 GiB/s   | ~38x    |
+| Serialize   | hex            | 4.404 ms  | 227.04 MiB/s  | 1x      |
+| Serialize   | muhex          | 968.59 µs | 1.008 GiB/s   | ~4.5x   |
+| Deserialize | hex            | 6.341 ms  | 157.71 MiB/s  | 1x      |
+| Deserialize | muhex          | 166.55 µs | 5.864 GiB/s   | ~38x    |
 
-Here is our results:
-
-```
-encdec/encode/muhex     time:   [57.927 µs 58.206 µs 58.461 µs]
-                        thrpt:  [16.704 GiB/s 16.778 GiB/s 16.858 GiB/s]
-encdec/decode/muhex     time:   [4.9279 ms 4.9551 ms 4.9781 ms]
-                        thrpt:  [200.88 MiB/s 201.81 MiB/s 202.93 MiB/s]
-serde/serialize/muhex   time:   [1.0238 ms 1.0279 ms 1.0324 ms]
-                        thrpt:  [968.65 MiB/s 972.87 MiB/s 976.74 MiB/s]
-serde/deserialize/muhex time:   [4.7140 ms 4.7272 ms 4.7411 ms]
-                        thrpt:  [210.92 MiB/s 211.54 MiB/s 212.13 MiB/s]
-```
+Please note that we can only achieve this performance because we only work on nightly Rust, and explicitly enforce SIMD. This is not a testament on the quality or performance of the `hex` crate. In fact, in most applications (if not all) will not benefit from any of those changes.
