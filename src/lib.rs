@@ -12,6 +12,7 @@ pub mod serde;
 pub use serde::{deserialize, serialize};
 
 const SIMD_CHUNK_SIZE: usize = 16;
+const SIMD_DECODE_CHUNK_SIZE: usize = 32;
 
 #[inline(always)]
 fn encode_simd(input: &[u8], output: &mut [u8]) {
@@ -94,8 +95,57 @@ pub fn encode<T: AsRef<[u8]>>(v: T) -> String {
     unsafe { String::from_utf8_unchecked(result) }
 }
 
+#[inline(always)]
+fn decode_hex_nibble(n: u8x16) -> Result<u8x16, Error> {
+    // Define the boundaries.
+    let zero = Simd::splat(b'0');
+    let nine = Simd::splat(b'9');
+    let upper_a = Simd::splat(b'A');
+    let upper_f = Simd::splat(b'F');
+    let lower_a = Simd::splat(b'a');
+    let lower_f = Simd::splat(b'f');
+
+    // Create masks for each valid range.
+    let is_digit = n.simd_ge(zero) & n.simd_le(nine);
+    let is_upper = n.simd_ge(upper_a) & n.simd_le(upper_f);
+    let is_lower = n.simd_ge(lower_a) & n.simd_le(lower_f);
+
+    // A byte is valid if it is a digit or a letter in either case.
+    let valid = is_digit | is_upper | is_lower;
+    if !valid.all() {
+        // Find and report the first invalid digit.
+        for &digit in n.as_array().iter() {
+            if !((digit >= b'0' && digit <= b'9')
+                || (digit >= b'A' && digit <= b'F')
+                || (digit >= b'a' && digit <= b'f'))
+            {
+                return Err(Error::new(
+                    ErrorKind::InvalidInput,
+                    format!("invalid hex digit: {}", digit as char),
+                ));
+            }
+        }
+        unreachable!();
+    }
+
+    // For digits '0'..'9', subtract b'0'.
+    let digit_val = n - zero;
+    // For uppercase 'A'..'F', subtract b'A' and add 10.
+    let upper_val = n - upper_a + Simd::splat(10);
+    // For lowercase 'a'..'f', subtract b'a' and add 10.
+    let lower_val = n - lower_a + Simd::splat(10);
+
+    // Combine the values using the masks.
+    let result =
+        is_digit.select(digit_val, is_upper.select(upper_val, lower_val));
+
+    Ok(result)
+}
+
 #[inline]
 pub fn decode(input: &str) -> Result<Vec<u8>, Error> {
+    let input = input.as_bytes();
+
     if input.len() % 2 != 0 {
         return Err(Error::new(
             ErrorKind::InvalidInput,
@@ -103,29 +153,44 @@ pub fn decode(input: &str) -> Result<Vec<u8>, Error> {
         ));
     }
 
-    let input = input.as_bytes();
-    let mut bytes = Vec::with_capacity(input.len() / 2);
+    let n = input.len();
+    let mut output = Vec::with_capacity(n / 2);
 
-    for chunk in input.chunks_exact(2) {
-        let hi = from_hex_digit(chunk[0])?;
-        let lo = from_hex_digit(chunk[1])?;
-        bytes.push((hi << 4) | lo);
+    // Process full chunks of 32 input bytes (16 output bytes)
+    let chunks = n / SIMD_DECODE_CHUNK_SIZE;
+    for i in 0..chunks {
+        let chunk = &input
+            [i * SIMD_DECODE_CHUNK_SIZE..(i + 1) * SIMD_DECODE_CHUNK_SIZE];
+        let high_bytes = u8x16::from_slice(&chunk[0..16]);
+        let low_bytes = u8x16::from_slice(&chunk[16..32]);
+
+        let high_nibbles = decode_hex_nibble(high_bytes)?;
+        let low_nibbles = decode_hex_nibble(low_bytes)?;
+
+        let decoded = (high_nibbles << Simd::splat(4)) | low_nibbles;
+        output.extend_from_slice(decoded.as_array());
     }
 
-    Ok(bytes)
-}
+    let remainder = n % SIMD_DECODE_CHUNK_SIZE;
+    if remainder > 0 {
+        let pairs = remainder / 2;
+        let start = chunks * SIMD_DECODE_CHUNK_SIZE;
+        let mut high_arr = [0u8; 16];
+        let mut low_arr = [0u8; 16];
+        for j in 0..pairs {
+            high_arr[j] = input[start + j * 2];
+            low_arr[j] = input[start + j * 2 + 1];
+        }
+        let high_simd = u8x16::from_array(high_arr);
+        let low_simd = u8x16::from_array(low_arr);
 
-#[inline(always)]
-fn from_hex_digit(digit: u8) -> Result<u8, Error> {
-    match digit {
-        b'0'..=b'9' => Ok(digit - b'0'),
-        b'a'..=b'f' => Ok(digit - b'a' + 10),
-        b'A'..=b'F' => Ok(digit - b'A' + 10),
-        _ => Err(Error::new(
-            ErrorKind::InvalidInput,
-            format!("invalid hex digit: {}", digit as char),
-        )),
+        let high_nibbles = decode_hex_nibble(high_simd)?;
+        let low_nibbles = decode_hex_nibble(low_simd)?;
+        let decoded = (high_nibbles << Simd::splat(4)) | low_nibbles;
+        output.extend_from_slice(&decoded.as_array()[..pairs]);
     }
+
+    Ok(output)
 }
 
 #[cfg(test)]
