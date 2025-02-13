@@ -175,8 +175,8 @@ pub fn decode(input: &str) -> Result<Vec<u8>, Error> {
     if remainder > 0 {
         let pairs = remainder / 2;
         let start = chunks * SIMD_DECODE_CHUNK_SIZE;
-        let mut high_arr = [0u8; 16];
-        let mut low_arr = [0u8; 16];
+        let mut high_arr = [b'0'; 16];
+        let mut low_arr = [b'0'; 16];
         for j in 0..pairs {
             high_arr[j] = input[start + j * 2];
             low_arr[j] = input[start + j * 2 + 1];
