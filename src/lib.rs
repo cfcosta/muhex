@@ -2,7 +2,7 @@
 
 use std::{
     io::{Error, ErrorKind},
-    simd::{cmp::SimdPartialOrd, u8x16, Simd},
+    simd::{cmp::SimdPartialOrd, u8x16, u8x32, Simd},
 };
 
 #[cfg(feature = "serde")]
@@ -143,6 +143,22 @@ fn decode_hex_nibble(n: u8x16) -> Result<u8x16, Error> {
 }
 
 #[inline]
+fn nibble_chunck(chunk: &[u8]) -> (u8x16, u8x16) {
+    let parsed_chunk = u8x32::from_slice(chunk);
+    let mut high_bytes_vec: Vec<u8> = vec![]; 
+    let mut low_bytes_vec: Vec<u8> = vec![]; 
+    for (index,piece) in parsed_chunk.to_array().iter().enumerate() {
+        if index % 2 == 0 {
+            high_bytes_vec.push(piece.clone())
+        } else {
+            low_bytes_vec.push(piece.clone())
+        }
+
+    }
+    (u8x16::from_slice(&high_bytes_vec), u8x16::from_slice(&low_bytes_vec))
+}
+
+#[inline]
 pub fn decode(input: &str) -> Result<Vec<u8>, Error> {
     let input = input.as_bytes();
 
@@ -161,8 +177,7 @@ pub fn decode(input: &str) -> Result<Vec<u8>, Error> {
     for i in 0..chunks {
         let chunk = &input
             [i * SIMD_DECODE_CHUNK_SIZE..(i + 1) * SIMD_DECODE_CHUNK_SIZE];
-        let high_bytes = u8x16::from_slice(&chunk[0..16]);
-        let low_bytes = u8x16::from_slice(&chunk[16..32]);
+        let (high_bytes, low_bytes) = nibble_chunck(chunk);
 
         let high_nibbles = decode_hex_nibble(high_bytes)?;
         let low_nibbles = decode_hex_nibble(low_bytes)?;
