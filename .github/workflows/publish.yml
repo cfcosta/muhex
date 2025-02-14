@@ -1,0 +1,41 @@
+name: Publish to Crate.io
+
+on:
+  tags:
+    - 'v-*'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: DeterminateSystems/nix-installer-action@main
+    - uses: DeterminateSystems/magic-nix-cache-action@main
+    - run: nix flake check
+
+  build:
+    needs: check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+    - uses: actions/checkout@v3
+    - uses: DeterminateSystems/nix-installer-action@main
+    - uses: DeterminateSystems/magic-nix-cache-action@main
+    - run: nix build
+
+  publish:
+    needs:
+      - test
+      - build
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+      - run: nix build
+      - name: cargo publish
+        run: |- 
+          cargo publish --dry-run \
+            --all-features \
+            --target=${{ vars.PUBLISH_BUILD_TARGET }} \
+            --token=${{ secrets.CRATES_IO_API_TOKEN }}
