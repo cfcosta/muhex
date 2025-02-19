@@ -2,14 +2,11 @@
 
 use std::{
     io::{Error, ErrorKind},
-    simd::{cmp::SimdPartialOrd, u8x16, Simd},
+    simd::{Simd, cmp::SimdPartialOrd, u8x16},
 };
 
 #[cfg(feature = "serde")]
 pub mod serde;
-
-#[cfg(feature = "serde")]
-pub use serde::{deserialize, serialize};
 
 const SIMD_CHUNK_SIZE: usize = 16;
 const SIMD_DECODE_CHUNK_SIZE: usize = 32;
