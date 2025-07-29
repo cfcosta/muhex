@@ -142,17 +142,19 @@ fn decode_hex_nibble(n: u8x16) -> Result<u8x16, Error> {
 #[inline]
 fn nibble_chunck(chunk: &[u8]) -> (u8x16, u8x16) {
     let parsed_chunk = u8x32::from_slice(chunk);
-    let mut high_bytes_vec: Vec<u8> = vec![]; 
-    let mut low_bytes_vec: Vec<u8> = vec![]; 
-    for (index,piece) in parsed_chunk.to_array().iter().enumerate() {
+    let mut high_bytes_vec: Vec<u8> = vec![];
+    let mut low_bytes_vec: Vec<u8> = vec![];
+    for (index, piece) in parsed_chunk.to_array().iter().enumerate() {
         if index % 2 == 0 {
             high_bytes_vec.push(piece.clone())
         } else {
             low_bytes_vec.push(piece.clone())
         }
-
     }
-    (u8x16::from_slice(&high_bytes_vec), u8x16::from_slice(&low_bytes_vec))
+    (
+        u8x16::from_slice(&high_bytes_vec),
+        u8x16::from_slice(&low_bytes_vec),
+    )
 }
 
 #[inline]

@@ -1,8 +1,33 @@
 use std::fmt;
 
-use serde::{de, Deserializer, Serializer};
+use serde::{Deserializer, Serializer, de};
 
 use crate::{decode, encode};
+
+pub trait FromBytes {
+    type Error: fmt::Display;
+    fn from_bytes(bytes: Vec<u8>) -> Result<Self, Self::Error>
+    where
+        Self: Sized;
+}
+
+impl FromBytes for Vec<u8> {
+    type Error = std::convert::Infallible;
+
+    fn from_bytes(bytes: Vec<u8>) -> Result<Self, Self::Error> {
+        Ok(bytes)
+    }
+}
+
+impl<const N: usize> FromBytes for [u8; N] {
+    type Error = String;
+
+    fn from_bytes(bytes: Vec<u8>) -> Result<Self, Self::Error> {
+        bytes.try_into().map_err(|v: Vec<u8>| {
+            format!("expected array of length {}, got length {}", N, v.len())
+        })
+    }
+}
 
 #[inline(always)]
 pub fn serialize<S, T>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
@@ -18,7 +43,7 @@ where
 pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
 where
     D: Deserializer<'de>,
-    T: From<Vec<u8>>,
+    T: FromBytes,
 {
     struct HexVisitor;
 
@@ -38,7 +63,7 @@ where
     }
 
     let bytes = deserializer.deserialize_str(HexVisitor)?;
-    Ok(T::from(bytes))
+    T::from_bytes(bytes).map_err(de::Error::custom)
 }
 
 #[cfg(test)]
@@ -52,11 +77,23 @@ mod tests {
         data: Vec<u8>,
     }
 
+    #[derive(Debug, Serialize, Deserialize, PartialEq)]
+    struct TestStructFixedWidth(#[serde(with = "crate::serde")] [u8; 32]);
+
     #[test_strategy::proptest]
     fn test_serde_roundtrip(data: Vec<u8>) {
         let test_struct = TestStruct { data };
         let serialized = serde_json::to_string(&test_struct).unwrap();
         let deserialized: TestStruct =
+            serde_json::from_str(&serialized).unwrap();
+        prop_assert_eq!(test_struct, deserialized);
+    }
+
+    #[test_strategy::proptest]
+    fn test_serde_roundtrip_fixed_width(data: [u8; 32]) {
+        let test_struct = TestStructFixedWidth(data);
+        let serialized = serde_json::to_string(&test_struct).unwrap();
+        let deserialized: TestStructFixedWidth =
             serde_json::from_str(&serialized).unwrap();
         prop_assert_eq!(test_struct, deserialized);
     }
