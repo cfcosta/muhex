@@ -8,9 +8,6 @@ use std::{
 #[cfg(feature = "serde")]
 pub mod serde;
 
-#[cfg(feature = "serde")]
-pub use serde::{deserialize, serialize};
-
 const SIMD_CHUNK_SIZE: usize = 16;
 const SIMD_DECODE_CHUNK_SIZE: usize = 32;
 
