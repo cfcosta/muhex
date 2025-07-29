@@ -2,7 +2,7 @@
 
 use std::{
     io::{Error, ErrorKind},
-    simd::{cmp::SimdPartialOrd, u8x16, u8x32, Simd},
+    simd::{Simd, cmp::SimdPartialOrd, u8x16, u8x32},
 };
 
 #[cfg(feature = "serde")]
@@ -112,9 +112,9 @@ fn decode_hex_nibble(n: u8x16) -> Result<u8x16, Error> {
     if !valid.all() {
         // Find and report the first invalid digit.
         for &digit in n.as_array().iter() {
-            if !((digit >= b'0' && digit <= b'9')
-                || (digit >= b'A' && digit <= b'F')
-                || (digit >= b'a' && digit <= b'f'))
+            if !(digit.is_ascii_digit()
+                || (b'A'..=b'F').contains(&digit)
+                || (b'a'..=b'f').contains(&digit))
             {
                 return Err(Error::new(
                     ErrorKind::InvalidInput,
@@ -146,9 +146,9 @@ fn nibble_chunck(chunk: &[u8]) -> (u8x16, u8x16) {
     let mut low_bytes_vec: Vec<u8> = vec![];
     for (index, piece) in parsed_chunk.to_array().iter().enumerate() {
         if index % 2 == 0 {
-            high_bytes_vec.push(piece.clone())
+            high_bytes_vec.push(*piece)
         } else {
-            low_bytes_vec.push(piece.clone())
+            low_bytes_vec.push(*piece)
         }
     }
     (
