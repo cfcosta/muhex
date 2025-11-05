@@ -7,9 +7,10 @@ categories = ["encoding"]
 edition = "2024"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
+repository = "https://github.com/cfcosta/muhex"
 
 [dependencies]
-serde = { version = "*", optional = true }
+serde = { version = "1", optional = true }
 
 [dev-dependencies]
 criterion = "0.5.1"
