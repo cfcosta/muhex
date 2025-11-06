@@ -24,6 +24,10 @@ fn bench_compare_hex(c: &mut Criterion) {
         b.iter(|| muhex::encode(black_box(&DATA)))
     });
 
+    group.bench_function(BenchmarkId::new("encode", "faster-hex"), |b| {
+        b.iter(|| faster_hex::hex_string(black_box(DATA.as_slice())))
+    });
+
     let data = muhex::encode(DATA);
 
     group.bench_function(BenchmarkId::new("decode", "hex"), |b| {
@@ -32,6 +36,18 @@ fn bench_compare_hex(c: &mut Criterion) {
 
     group.bench_function(BenchmarkId::new("decode", "muhex"), |b| {
         b.iter(|| muhex::decode(black_box(&data)).unwrap())
+    });
+
+    group.bench_function(BenchmarkId::new("decode", "faster-hex"), |b| {
+        b.iter(|| {
+            let mut output = Vec::with_capacity(data.len() / 2);
+            faster_hex::hex_decode(
+                black_box(data.as_bytes()),
+                black_box(&mut output),
+            )
+            .unwrap();
+            black_box(output);
+        })
     });
 
     group.finish();
