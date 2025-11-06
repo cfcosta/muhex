@@ -1,12 +1,8 @@
 use std::time::Duration;
 
 use criterion::{
-    BenchmarkId,
-    Criterion,
+    black_box, criterion_group, criterion_main, BenchmarkId, Criterion,
     Throughput,
-    black_box,
-    criterion_group,
-    criterion_main,
 };
 
 const DATA: &[u8; 1024 * 1024] = include_bytes!("seed.bin");

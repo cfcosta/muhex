@@ -2,7 +2,10 @@
 
 use std::{
     io::{Error, ErrorKind},
-    simd::{LaneCount, Simd, SupportedLaneCount, cmp::SimdPartialOrd, simd_swizzle, u8x16, u8x32},
+    simd::{
+        cmp::SimdPartialOrd, simd_swizzle, u8x16, u8x32, LaneCount, Simd,
+        SupportedLaneCount,
+    },
 };
 
 type SimdU8<const LANES: usize> = Simd<u8, LANES>;
@@ -57,7 +60,12 @@ fn encode_simd_16(input: &[u8], output: &mut [u8]) {
 }
 
 #[inline(always)]
-fn nibble_to_ascii(n: u8x16, bias_0: u8x16, bias_a: u8x16, cmp_9: u8x16) -> u8x16 {
+fn nibble_to_ascii(
+    n: u8x16,
+    bias_0: u8x16,
+    bias_a: u8x16,
+    cmp_9: u8x16,
+) -> u8x16 {
     let mask_gt_9 = n.simd_gt(cmp_9);
     let base_0 = n + bias_0;
     let base_a = n + bias_a;
@@ -66,7 +74,12 @@ fn nibble_to_ascii(n: u8x16, bias_0: u8x16, bias_a: u8x16, cmp_9: u8x16) -> u8x1
 }
 
 #[inline(always)]
-fn nibble_to_ascii_32(n: u8x32, bias_0: u8x32, bias_a: u8x32, cmp_9: u8x32) -> u8x32 {
+fn nibble_to_ascii_32(
+    n: u8x32,
+    bias_0: u8x32,
+    bias_a: u8x32,
+    cmp_9: u8x32,
+) -> u8x32 {
     let mask_gt_9 = n.simd_gt(cmp_9);
     let base_0 = n + bias_0;
     let base_a = n + bias_a;
@@ -80,8 +93,10 @@ fn encode_scalar(data: &[u8], result: &mut [u8]) {
         let hi = (byte >> 4) as usize;
         let lo = (byte & 0xf) as usize;
 
-        result[i * 2] = b'0' + hi as u8 + ((hi >= 10) as u8) * (b'a' - b'0' - 10);
-        result[i * 2 + 1] = b'0' + lo as u8 + ((lo >= 10) as u8) * (b'a' - b'0' - 10);
+        result[i * 2] =
+            b'0' + hi as u8 + ((hi >= 10) as u8) * (b'a' - b'0' - 10);
+        result[i * 2 + 1] =
+            b'0' + lo as u8 + ((lo >= 10) as u8) * (b'a' - b'0' - 10);
     }
 }
 
@@ -93,12 +108,18 @@ pub fn encode<T: AsRef<[u8]>>(v: T) -> String {
     let mut pos = 0;
 
     while pos + 32 <= data.len() {
-        encode_simd_32(&data[pos..pos + 32], &mut result[pos * 2..(pos + 32) * 2]);
+        encode_simd_32(
+            &data[pos..pos + 32],
+            &mut result[pos * 2..(pos + 32) * 2],
+        );
         pos += 32;
     }
 
     while pos + 16 <= data.len() {
-        encode_simd_16(&data[pos..pos + 16], &mut result[pos * 2..(pos + 16) * 2]);
+        encode_simd_16(
+            &data[pos..pos + 16],
+            &mut result[pos * 2..(pos + 16) * 2],
+        );
         pos += 16;
     }
 
@@ -110,7 +131,9 @@ pub fn encode<T: AsRef<[u8]>>(v: T) -> String {
 }
 
 #[inline(always)]
-fn decode_hex_nibbles<const LANES: usize>(n: SimdU8<LANES>) -> Result<SimdU8<LANES>, Error>
+fn decode_hex_nibbles<const LANES: usize>(
+    n: SimdU8<LANES>,
+) -> Result<SimdU8<LANES>, Error>
 where
     LaneCount<LANES>: SupportedLaneCount,
 {
@@ -171,15 +194,15 @@ pub fn decode(input: &str) -> Result<Vec<u8>, Error> {
         let high_bytes: SimdU8<32> = simd_swizzle!(
             chunk_vec,
             [
-                0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42,
-                44, 46, 48, 50, 52, 54, 56, 58, 60, 62
+                0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32,
+                34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62
             ]
         );
         let low_bytes: SimdU8<32> = simd_swizzle!(
             chunk_vec,
             [
-                1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43,
-                45, 47, 49, 51, 53, 55, 57, 59, 61, 63
+                1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33,
+                35, 37, 39, 41, 43, 45, 47, 49, 51, 53, 55, 57, 59, 61, 63
             ]
         );
 
