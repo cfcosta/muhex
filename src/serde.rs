@@ -1,6 +1,6 @@
 use std::fmt;
 
-use serde::{de, Deserializer, Serializer};
+use serde::{Deserializer, Serializer, de};
 
 use crate::{decode, encode};
 

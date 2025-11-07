@@ -3,8 +3,14 @@
 use std::{
     io::{Error, ErrorKind},
     simd::{
-        cmp::SimdPartialOrd, simd_swizzle, u8x16, u8x32, u8x64, LaneCount,
-        Simd, SupportedLaneCount,
+        LaneCount,
+        Simd,
+        SupportedLaneCount,
+        cmp::SimdPartialOrd,
+        simd_swizzle,
+        u8x16,
+        u8x32,
+        u8x64,
     },
 };
 
@@ -27,16 +33,12 @@ fn encode_simd_32(input: &[u8], output: &mut [u8]) {
     let hi_ascii = nibble_to_ascii_32(high_nibble, bias_0, bias_a, cmp_9);
     let lo_ascii = nibble_to_ascii_32(low_nibble, bias_0, bias_a, cmp_9);
 
-    let interleaved: u8x64 = simd_swizzle!(
-        hi_ascii,
-        lo_ascii,
-        [
-            0, 32, 1, 33, 2, 34, 3, 35, 4, 36, 5, 37, 6, 38, 7, 39, 8, 40, 9,
-            41, 10, 42, 11, 43, 12, 44, 13, 45, 14, 46, 15, 47, 16, 48, 17, 49,
-            18, 50, 19, 51, 20, 52, 21, 53, 22, 54, 23, 55, 24, 56, 25, 57, 26,
-            58, 27, 59, 28, 60, 29, 61, 30, 62, 31, 63
-        ]
-    );
+    let interleaved: u8x64 = simd_swizzle!(hi_ascii, lo_ascii, [
+        0, 32, 1, 33, 2, 34, 3, 35, 4, 36, 5, 37, 6, 38, 7, 39, 8, 40, 9, 41,
+        10, 42, 11, 43, 12, 44, 13, 45, 14, 46, 15, 47, 16, 48, 17, 49, 18, 50,
+        19, 51, 20, 52, 21, 53, 22, 54, 23, 55, 24, 56, 25, 57, 26, 58, 27, 59,
+        28, 60, 29, 61, 30, 62, 31, 63
+    ]);
     output.copy_from_slice(interleaved.as_array());
 }
 
@@ -54,14 +56,10 @@ fn encode_simd_16(input: &[u8], output: &mut [u8]) {
     let hi_ascii = nibble_to_ascii(high_nibble, bias_0, bias_a, cmp_9);
     let lo_ascii = nibble_to_ascii(low_nibble, bias_0, bias_a, cmp_9);
 
-    let interleaved: u8x32 = simd_swizzle!(
-        hi_ascii,
-        lo_ascii,
-        [
-            0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23, 8, 24, 9,
-            25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31
-        ]
-    );
+    let interleaved: u8x32 = simd_swizzle!(hi_ascii, lo_ascii, [
+        0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23, 8, 24, 9, 25,
+        10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31
+    ]);
     output.copy_from_slice(interleaved.as_array());
 }
 
@@ -183,60 +181,87 @@ where
 #[inline]
 pub fn decode(input: &str) -> Result<Vec<u8>, Error> {
     let input = input.as_bytes();
+    let output_len = required_output_len(input.len())?;
+    let mut output = Vec::with_capacity(output_len);
+    unsafe {
+        output.set_len(output_len);
+    }
+    decode_into(input, &mut output)?;
+    Ok(output)
+}
 
-    if input.len() % 2 != 0 {
+#[inline]
+pub fn decode_to_slice(input: &str, output: &mut [u8]) -> Result<(), Error> {
+    let input = input.as_bytes();
+    let expected_len = required_output_len(input.len())?;
+    if output.len() != expected_len {
         return Err(Error::new(
             ErrorKind::InvalidInput,
-            "hex string length must be even",
+            format!(
+                "output slice has wrong length: expected {}, got {}",
+                expected_len,
+                output.len()
+            ),
         ));
     }
 
-    let n = input.len();
-    let mut output = Vec::with_capacity(n / 2);
+    decode_into(input, output)
+}
+
+#[inline(always)]
+fn required_output_len(input_len: usize) -> Result<usize, Error> {
+    if input_len % 2 != 0 {
+        Err(Error::new(
+            ErrorKind::InvalidInput,
+            "hex string length must be even",
+        ))
+    } else {
+        Ok(input_len / 2)
+    }
+}
+
+#[inline(always)]
+fn decode_into(input: &[u8], output: &mut [u8]) -> Result<(), Error> {
     let mut pos = 0;
+    let mut out_pos = 0;
+    let n = input.len();
 
     while pos + 64 <= n {
         let chunk_vec: SimdU8<64> = Simd::from_slice(&input[pos..pos + 64]);
-        let high_bytes: SimdU8<32> = simd_swizzle!(
-            chunk_vec,
-            [
-                0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32,
-                34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62
-            ]
-        );
-        let low_bytes: SimdU8<32> = simd_swizzle!(
-            chunk_vec,
-            [
-                1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33,
-                35, 37, 39, 41, 43, 45, 47, 49, 51, 53, 55, 57, 59, 61, 63
-            ]
-        );
+        let high_bytes: SimdU8<32> = simd_swizzle!(chunk_vec, [
+            0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34,
+            36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62
+        ]);
+        let low_bytes: SimdU8<32> = simd_swizzle!(chunk_vec, [
+            1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35,
+            37, 39, 41, 43, 45, 47, 49, 51, 53, 55, 57, 59, 61, 63
+        ]);
 
         let high_nibbles = decode_hex_nibbles::<32>(high_bytes)?;
         let low_nibbles = decode_hex_nibbles::<32>(low_bytes)?;
 
         let decoded = (high_nibbles << SimdU8::<32>::splat(4)) | low_nibbles;
-        output.extend_from_slice(decoded.as_array());
+        output[out_pos..out_pos + 32].copy_from_slice(decoded.as_array());
         pos += 64;
+        out_pos += 32;
     }
 
     while pos + 32 <= n {
         let chunk_vec: SimdU8<32> = Simd::from_slice(&input[pos..pos + 32]);
-        let high_bytes: SimdU8<16> = simd_swizzle!(
-            chunk_vec,
-            [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30]
-        );
-        let low_bytes: SimdU8<16> = simd_swizzle!(
-            chunk_vec,
-            [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31]
-        );
+        let high_bytes: SimdU8<16> = simd_swizzle!(chunk_vec, [
+            0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30
+        ]);
+        let low_bytes: SimdU8<16> = simd_swizzle!(chunk_vec, [
+            1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31
+        ]);
 
         let high_nibbles = decode_hex_nibbles::<16>(high_bytes)?;
         let low_nibbles = decode_hex_nibbles::<16>(low_bytes)?;
 
         let decoded = (high_nibbles << SimdU8::<16>::splat(4)) | low_nibbles;
-        output.extend_from_slice(decoded.as_array());
+        output[out_pos..out_pos + 16].copy_from_slice(decoded.as_array());
         pos += 32;
+        out_pos += 16;
     }
 
     let remainder = n - pos;
@@ -254,10 +279,14 @@ pub fn decode(input: &str) -> Result<Vec<u8>, Error> {
         let high_nibbles = decode_hex_nibbles::<16>(high_simd)?;
         let low_nibbles = decode_hex_nibbles::<16>(low_simd)?;
         let decoded = (high_nibbles << SimdU8::<16>::splat(4)) | low_nibbles;
-        output.extend_from_slice(&decoded.as_array()[..pairs]);
+        output[out_pos..out_pos + pairs]
+            .copy_from_slice(&decoded.as_array()[..pairs]);
+        out_pos += pairs;
     }
 
-    Ok(output)
+    debug_assert_eq!(out_pos, output.len());
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -278,6 +307,14 @@ mod tests {
     }
 
     #[test_strategy::proptest(cases = 10000)]
+    fn test_decode_to_slice_roundtrip(input: Vec<u8>) {
+        let encoded = hex::encode(&input);
+        let mut buffer = vec![0u8; input.len()];
+        prop_assert!(super::decode_to_slice(&encoded, &mut buffer).is_ok());
+        prop_assert_eq!(buffer, input);
+    }
+
+    #[test_strategy::proptest(cases = 10000)]
     fn test_hex_roundtrip(input: Vec<u8>) {
         prop_assert_eq!(super::decode(&super::encode(&input))?, input)
     }
@@ -288,5 +325,13 @@ mod tests {
             super::decode(&super::encode(&input)).is_ok(),
             hex::decode(hex::encode(input)).is_ok()
         )
+    }
+
+    #[test]
+    fn test_decode_to_slice_len_mismatch() {
+        let mut buffer = [0u8; 1];
+        let err =
+            super::decode_to_slice("00", &mut buffer[..0]).expect_err("err");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
     }
 }

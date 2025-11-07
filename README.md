@@ -25,6 +25,13 @@ And decoding:
 println!("{}", muhex::decode("48656c6c6f20776f726c6421")?); // Prints "Hello world!"
 ```
 
+If you already own a buffer, you can decode without any allocation:
+
+```rust
+let mut buf = vec![0u8; 12];
+muhex::decode_to_slice("48656c6c6f20776f726c6421", &mut buf)?;
+```
+
 ## Benchmarks
 
 This is a benchmark on my own machine against the `hex` crate.
