@@ -2,6 +2,7 @@
 
 use std::{
     io::{Error, ErrorKind},
+    mem::MaybeUninit,
     simd::{
         LaneCount,
         Simd,
@@ -19,8 +20,12 @@ type SimdU8<const LANES: usize> = Simd<u8, LANES>;
 #[cfg(feature = "serde")]
 pub mod serde;
 
+mod buf;
+
+pub use buf::*;
+
 #[inline(always)]
-fn encode_simd_32(input: &[u8], output: &mut [u8]) {
+fn encode_simd_32(input: &[u8], output: &mut [MaybeUninit<u8>]) {
     let raw: u8x32 = Simd::from_slice(input);
 
     let high_nibble = raw >> Simd::splat(4);
@@ -33,17 +38,26 @@ fn encode_simd_32(input: &[u8], output: &mut [u8]) {
     let hi_ascii = nibble_to_ascii_32(high_nibble, bias_0, bias_a, cmp_9);
     let lo_ascii = nibble_to_ascii_32(low_nibble, bias_0, bias_a, cmp_9);
 
-    let interleaved: u8x64 = simd_swizzle!(hi_ascii, lo_ascii, [
-        0, 32, 1, 33, 2, 34, 3, 35, 4, 36, 5, 37, 6, 38, 7, 39, 8, 40, 9, 41,
-        10, 42, 11, 43, 12, 44, 13, 45, 14, 46, 15, 47, 16, 48, 17, 49, 18, 50,
-        19, 51, 20, 52, 21, 53, 22, 54, 23, 55, 24, 56, 25, 57, 26, 58, 27, 59,
-        28, 60, 29, 61, 30, 62, 31, 63
-    ]);
-    output.copy_from_slice(interleaved.as_array());
+    let interleaved: u8x64 = simd_swizzle!(
+        hi_ascii,
+        lo_ascii,
+        [
+            0, 32, 1, 33, 2, 34, 3, 35, 4, 36, 5, 37, 6, 38, 7, 39, 8, 40, 9,
+            41, 10, 42, 11, 43, 12, 44, 13, 45, 14, 46, 15, 47, 16, 48, 17, 49,
+            18, 50, 19, 51, 20, 52, 21, 53, 22, 54, 23, 55, 24, 56, 25, 57, 26,
+            58, 27, 59, 28, 60, 29, 61, 30, 62, 31, 63
+        ]
+    );
+
+    let interleaved: &[u8; 64] = interleaved.as_array();
+    // SAFETY: &[u8;64] and &[MaybeUninit<u8>; 64] have the same layout
+    let uninit_src: &[MaybeUninit<u8>; 64] =
+        unsafe { std::mem::transmute(interleaved) };
+    output.copy_from_slice(uninit_src);
 }
 
 #[inline(always)]
-fn encode_simd_16(input: &[u8], output: &mut [u8]) {
+fn encode_simd_16(input: &[u8], output: &mut [MaybeUninit<u8>]) {
     let raw: u8x16 = Simd::from_slice(input);
 
     let high_nibble = raw >> Simd::splat(4);
@@ -56,11 +70,20 @@ fn encode_simd_16(input: &[u8], output: &mut [u8]) {
     let hi_ascii = nibble_to_ascii(high_nibble, bias_0, bias_a, cmp_9);
     let lo_ascii = nibble_to_ascii(low_nibble, bias_0, bias_a, cmp_9);
 
-    let interleaved: u8x32 = simd_swizzle!(hi_ascii, lo_ascii, [
-        0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23, 8, 24, 9, 25,
-        10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31
-    ]);
-    output.copy_from_slice(interleaved.as_array());
+    let interleaved: u8x32 = simd_swizzle!(
+        hi_ascii,
+        lo_ascii,
+        [
+            0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23, 8, 24, 9,
+            25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31
+        ]
+    );
+
+    let interleaved: &[u8; 32] = interleaved.as_array();
+    // SAFETY: &[u8; 32] and &[MaybeUninit<u8>; 32] have the same layout
+    let uninit_src: &[MaybeUninit<u8>; 32] =
+        unsafe { std::mem::transmute(interleaved) };
+    output.copy_from_slice(uninit_src);
 }
 
 #[inline(always)]
@@ -92,46 +115,67 @@ fn nibble_to_ascii_32(
 }
 
 #[inline(always)]
-fn encode_scalar(data: &[u8], result: &mut [u8]) {
+fn encode_scalar(data: &[u8], result: &mut [MaybeUninit<u8>]) {
     for (i, byte) in data.iter().enumerate() {
         let hi = (byte >> 4) as usize;
         let lo = (byte & 0xf) as usize;
 
-        result[i * 2] =
-            b'0' + hi as u8 + ((hi >= 10) as u8) * (b'a' - b'0' - 10);
-        result[i * 2 + 1] =
-            b'0' + lo as u8 + ((lo >= 10) as u8) * (b'a' - b'0' - 10);
+        result[i * 2]
+            .write(b'0' + hi as u8 + ((hi >= 10) as u8) * (b'a' - b'0' - 10));
+        result[i * 2 + 1]
+            .write(b'0' + lo as u8 + ((lo >= 10) as u8) * (b'a' - b'0' - 10));
     }
 }
 
 #[inline]
 pub fn encode<T: AsRef<[u8]>>(v: T) -> String {
     let data = v.as_ref();
-    let mut result = vec![0; data.len() * 2];
+    let mut result = Vec::with_capacity(data.len() * 2);
+    encode_to_buf(data, result.spare_capacity_mut())
+        .expect("Len of result is always correct");
+    unsafe {
+        result.set_len(data.len() * 2);
+    }
+    unsafe { String::from_utf8_unchecked(result) }
+}
+
+#[inline]
+pub fn encode_to_buf<T, Dst>(v: T, dst: &mut Dst) -> Result<(), Error>
+where
+    T: AsRef<[u8]>,
+    Dst: Buf + ?Sized,
+{
+    let data = v.as_ref();
+    let expected_len = data.len() * 2;
+    let dst = dst.dst();
+    if dst.len() != expected_len {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            format!(
+                "output slice has wrong length: expected {}, got {}",
+                expected_len,
+                dst.len()
+            ),
+        ));
+    }
 
     let mut pos = 0;
 
     while pos + 32 <= data.len() {
-        encode_simd_32(
-            &data[pos..pos + 32],
-            &mut result[pos * 2..(pos + 32) * 2],
-        );
+        encode_simd_32(&data[pos..pos + 32], &mut dst[pos * 2..(pos + 32) * 2]);
         pos += 32;
     }
 
     while pos + 16 <= data.len() {
-        encode_simd_16(
-            &data[pos..pos + 16],
-            &mut result[pos * 2..(pos + 16) * 2],
-        );
+        encode_simd_16(&data[pos..pos + 16], &mut dst[pos * 2..(pos + 16) * 2]);
         pos += 16;
     }
 
     if pos < data.len() {
-        encode_scalar(&data[pos..], &mut result[pos * 2..]);
+        encode_scalar(&data[pos..], &mut dst[pos * 2..]);
     }
 
-    unsafe { String::from_utf8_unchecked(result) }
+    Ok(())
 }
 
 #[inline(always)]
@@ -183,17 +227,21 @@ pub fn decode(input: &str) -> Result<Vec<u8>, Error> {
     let input = input.as_bytes();
     let output_len = required_output_len(input.len())?;
     let mut output = Vec::with_capacity(output_len);
+    decode_into(input, output.spare_capacity_mut())?;
     unsafe {
         output.set_len(output_len);
     }
-    decode_into(input, &mut output)?;
     Ok(output)
 }
 
 #[inline]
-pub fn decode_to_slice(input: &str, output: &mut [u8]) -> Result<(), Error> {
+pub fn decode_to_buf<Dst>(input: &str, output: &mut Dst) -> Result<(), Error>
+where
+    Dst: Buf + ?Sized,
+{
     let input = input.as_bytes();
     let expected_len = required_output_len(input.len())?;
+    let output = output.dst();
     if output.len() != expected_len {
         return Err(Error::new(
             ErrorKind::InvalidInput,
@@ -206,6 +254,11 @@ pub fn decode_to_slice(input: &str, output: &mut [u8]) -> Result<(), Error> {
     }
 
     decode_into(input, output)
+}
+
+#[inline]
+pub fn decode_to_slice(input: &str, output: &mut [u8]) -> Result<(), Error> {
+    decode_to_buf(input, output)
 }
 
 #[inline(always)]
@@ -221,45 +274,66 @@ fn required_output_len(input_len: usize) -> Result<usize, Error> {
 }
 
 #[inline(always)]
-fn decode_into(input: &[u8], output: &mut [u8]) -> Result<(), Error> {
+fn decode_into(
+    input: &[u8],
+    output: &mut [MaybeUninit<u8>],
+) -> Result<(), Error> {
     let mut pos = 0;
     let mut out_pos = 0;
     let n = input.len();
 
     while pos + 64 <= n {
         let chunk_vec: SimdU8<64> = Simd::from_slice(&input[pos..pos + 64]);
-        let high_bytes: SimdU8<32> = simd_swizzle!(chunk_vec, [
-            0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34,
-            36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62
-        ]);
-        let low_bytes: SimdU8<32> = simd_swizzle!(chunk_vec, [
-            1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35,
-            37, 39, 41, 43, 45, 47, 49, 51, 53, 55, 57, 59, 61, 63
-        ]);
+        let high_bytes: SimdU8<32> = simd_swizzle!(
+            chunk_vec,
+            [
+                0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32,
+                34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62
+            ]
+        );
+        let low_bytes: SimdU8<32> = simd_swizzle!(
+            chunk_vec,
+            [
+                1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33,
+                35, 37, 39, 41, 43, 45, 47, 49, 51, 53, 55, 57, 59, 61, 63
+            ]
+        );
 
         let high_nibbles = decode_hex_nibbles::<32>(high_bytes)?;
         let low_nibbles = decode_hex_nibbles::<32>(low_bytes)?;
 
         let decoded = (high_nibbles << SimdU8::<32>::splat(4)) | low_nibbles;
-        output[out_pos..out_pos + 32].copy_from_slice(decoded.as_array());
+
+        let decoded: &[u8; 32] = decoded.as_array();
+        // SAFETY: &[u8; 32] and &[MaybeUninit<u8>; 32] have the same layout
+        let uninit_src: &[MaybeUninit<u8>; 32] =
+            unsafe { std::mem::transmute(decoded) };
+        output[out_pos..out_pos + 32].copy_from_slice(uninit_src);
+
         pos += 64;
         out_pos += 32;
     }
 
     while pos + 32 <= n {
         let chunk_vec: SimdU8<32> = Simd::from_slice(&input[pos..pos + 32]);
-        let high_bytes: SimdU8<16> = simd_swizzle!(chunk_vec, [
-            0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30
-        ]);
-        let low_bytes: SimdU8<16> = simd_swizzle!(chunk_vec, [
-            1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31
-        ]);
+        let high_bytes: SimdU8<16> = simd_swizzle!(
+            chunk_vec,
+            [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30]
+        );
+        let low_bytes: SimdU8<16> = simd_swizzle!(
+            chunk_vec,
+            [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31]
+        );
 
         let high_nibbles = decode_hex_nibbles::<16>(high_bytes)?;
         let low_nibbles = decode_hex_nibbles::<16>(low_bytes)?;
 
         let decoded = (high_nibbles << SimdU8::<16>::splat(4)) | low_nibbles;
-        output[out_pos..out_pos + 16].copy_from_slice(decoded.as_array());
+        let decoded: &[u8; 16] = decoded.as_array();
+        // SAFETY: &[u8;16] and &[MaybeUninit<u8>; 16] have the same layout
+        let uninit_src: &[MaybeUninit<u8>; 16] =
+            unsafe { std::mem::transmute(decoded) };
+        output[out_pos..out_pos + 16].copy_from_slice(uninit_src);
         pos += 32;
         out_pos += 16;
     }
@@ -279,8 +353,11 @@ fn decode_into(input: &[u8], output: &mut [u8]) -> Result<(), Error> {
         let high_nibbles = decode_hex_nibbles::<16>(high_simd)?;
         let low_nibbles = decode_hex_nibbles::<16>(low_simd)?;
         let decoded = (high_nibbles << SimdU8::<16>::splat(4)) | low_nibbles;
-        output[out_pos..out_pos + pairs]
-            .copy_from_slice(&decoded.as_array()[..pairs]);
+        let decoded: &[u8; 16] = decoded.as_array();
+        // SAFETY: &[u8;16] and &[MaybeUninit<u8>; 16] have the same layout
+        let uninit_src: &[MaybeUninit<u8>; 16] =
+            unsafe { std::mem::transmute(decoded) };
+        output[out_pos..out_pos + pairs].copy_from_slice(&uninit_src[..pairs]);
         out_pos += pairs;
     }
 
