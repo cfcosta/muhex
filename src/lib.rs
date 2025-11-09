@@ -178,62 +178,6 @@ where
     Ok(())
 }
 
-#[inline(always)]
-fn decode_hex_nibbles<const LANES: usize>(
-    n: SimdU8<LANES>,
-) -> Result<SimdU8<LANES>, Error>
-where
-    LaneCount<LANES>: SupportedLaneCount,
-{
-    let zero = SimdU8::<LANES>::splat(b'0');
-    let nine = SimdU8::<LANES>::splat(b'9');
-    let upper_a = SimdU8::<LANES>::splat(b'A');
-    let upper_f = SimdU8::<LANES>::splat(b'F');
-    let lower_a = SimdU8::<LANES>::splat(b'a');
-    let lower_f = SimdU8::<LANES>::splat(b'f');
-
-    let is_digit = n.simd_ge(zero) & n.simd_le(nine);
-    let is_upper = n.simd_ge(upper_a) & n.simd_le(upper_f);
-    let is_lower = n.simd_ge(lower_a) & n.simd_le(lower_f);
-
-    let valid = is_digit | is_upper | is_lower;
-    if !valid.all() {
-        for &digit in n.as_array().iter() {
-            if !(digit.is_ascii_digit()
-                || (b'A'..=b'F').contains(&digit)
-                || (b'a'..=b'f').contains(&digit))
-            {
-                return Err(Error::new(
-                    ErrorKind::InvalidInput,
-                    format!("invalid hex digit: {}", digit as char),
-                ));
-            }
-        }
-        unreachable!();
-    }
-
-    // For digits '0'..'9', subtract b'0'.
-    let digit_val = n - zero;
-    // For uppercase 'A'..'F', subtract b'A' and add 10.
-    let upper_val = n - upper_a + SimdU8::<LANES>::splat(10);
-    // For lowercase 'a'..'f', subtract b'a' and add 10.
-    let lower_val = n - lower_a + SimdU8::<LANES>::splat(10);
-
-    Ok(is_digit.select(digit_val, is_upper.select(upper_val, lower_val)))
-}
-
-#[inline]
-pub fn decode(input: &str) -> Result<Vec<u8>, Error> {
-    let input = input.as_bytes();
-    let output_len = required_output_len(input.len())?;
-    let mut output = Vec::with_capacity(output_len);
-    decode_into(input, output.spare_capacity_mut())?;
-    unsafe {
-        output.set_len(output_len);
-    }
-    Ok(output)
-}
-
 #[inline]
 pub fn decode_to_buf<Dst>(input: &str, output: &mut Dst) -> Result<(), Error>
 where
@@ -262,6 +206,29 @@ pub fn decode_to_slice(input: &str, output: &mut [u8]) -> Result<(), Error> {
 }
 
 #[inline(always)]
+fn invalid_hex_char_error() -> Error {
+    Error::from(ErrorKind::InvalidData)
+}
+
+#[inline]
+pub fn decode(input: &str) -> Result<Vec<u8>, Error> {
+    let input = input.as_bytes();
+    let n = input.len();
+
+    if n % 2 != 0 {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "input length must be even",
+        ));
+    }
+
+    let mut output = Vec::with_capacity(n / 2);
+    decode_into(input, output.spare_capacity_mut())?;
+    unsafe { output.set_len(n / 2) };
+    Ok(output)
+}
+
+#[inline(always)]
 fn required_output_len(input_len: usize) -> Result<usize, Error> {
     if input_len % 2 != 0 {
         Err(Error::new(
@@ -273,17 +240,41 @@ fn required_output_len(input_len: usize) -> Result<usize, Error> {
     }
 }
 
-#[inline(always)]
+const HEX_DECODE_LUT: [u8; 256] = {
+    let mut lut = [255u8; 256]; // 255 = invalid
+    let mut i = 0;
+    while i < 256 {
+        lut[i] = match i as u8 {
+            b'0'..=b'9' => i as u8 - b'0',
+            b'A'..=b'F' => i as u8 - b'A' + 10,
+            b'a'..=b'f' => i as u8 - b'a' + 10,
+            _ => 255,
+        };
+        i += 1;
+    }
+    lut
+};
+
 fn decode_into(
     input: &[u8],
     output: &mut [MaybeUninit<u8>],
 ) -> Result<(), Error> {
-    let mut pos = 0;
-    let mut out_pos = 0;
     let n = input.len();
 
+    if n % 2 != 0 {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "input length must be even",
+        ));
+    }
+
+    let mut pos = 0;
+    let mut out_pos = 0;
+
+    // Process 64 bytes at a time with combined validation + decode
     while pos + 64 <= n {
         let chunk_vec: SimdU8<64> = Simd::from_slice(&input[pos..pos + 64]);
+
         let high_bytes: SimdU8<32> = simd_swizzle!(
             chunk_vec,
             [
@@ -299,9 +290,12 @@ fn decode_into(
             ]
         );
 
-        let high_nibbles = decode_hex_nibbles::<32>(high_bytes)?;
-        let low_nibbles = decode_hex_nibbles::<32>(low_bytes)?;
+        let (high_nibbles, high_valid) = decode_hex_nibbles(high_bytes);
+        let (low_nibbles, low_valid) = decode_hex_nibbles(low_bytes);
 
+        if !(high_valid & low_valid) {
+            return Err(invalid_hex_char_error());
+        }
         let decoded = (high_nibbles << SimdU8::<32>::splat(4)) | low_nibbles;
 
         let decoded: &[u8; 32] = decoded.as_array();
@@ -314,6 +308,7 @@ fn decode_into(
         out_pos += 32;
     }
 
+    // Process 32 bytes at a time
     while pos + 32 <= n {
         let chunk_vec: SimdU8<32> = Simd::from_slice(&input[pos..pos + 32]);
         let high_bytes: SimdU8<16> = simd_swizzle!(
@@ -325,8 +320,12 @@ fn decode_into(
             [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31]
         );
 
-        let high_nibbles = decode_hex_nibbles::<16>(high_bytes)?;
-        let low_nibbles = decode_hex_nibbles::<16>(low_bytes)?;
+        let (high_nibbles, high_valid) = decode_hex_nibbles(high_bytes);
+        let (low_nibbles, low_valid) = decode_hex_nibbles(low_bytes);
+
+        if !(high_valid & low_valid) {
+            return Err(invalid_hex_char_error());
+        }
 
         let decoded = (high_nibbles << SimdU8::<16>::splat(4)) | low_nibbles;
         let decoded: &[u8; 16] = decoded.as_array();
@@ -338,30 +337,137 @@ fn decode_into(
         out_pos += 16;
     }
 
-    let remainder = n - pos;
-    if remainder > 0 {
-        let pairs = remainder / 2;
-        let mut high_arr = [b'0'; 16];
-        let mut low_arr = [b'0'; 16];
-        for j in 0..pairs {
-            high_arr[j] = input[pos + j * 2];
-            low_arr[j] = input[pos + j * 2 + 1];
-        }
-        let high_simd = u8x16::from_array(high_arr);
-        let low_simd = u8x16::from_array(low_arr);
+    let remaining = n - pos;
+    decode_remainder_lut(input, output, pos, out_pos, remaining)?;
 
-        let high_nibbles = decode_hex_nibbles::<16>(high_simd)?;
-        let low_nibbles = decode_hex_nibbles::<16>(low_simd)?;
-        let decoded = (high_nibbles << SimdU8::<16>::splat(4)) | low_nibbles;
-        let decoded: &[u8; 16] = decoded.as_array();
-        // SAFETY: &[u8;16] and &[MaybeUninit<u8>; 16] have the same layout
-        let uninit_src: &[MaybeUninit<u8>; 16] =
-            unsafe { std::mem::transmute(decoded) };
-        output[out_pos..out_pos + pairs].copy_from_slice(&uninit_src[..pairs]);
-        out_pos += pairs;
+    Ok(())
+}
+
+#[inline(always)]
+fn decode_hex_nibbles<const LANES: usize>(
+    n: SimdU8<LANES>,
+) -> (SimdU8<LANES>, bool)
+where
+    LaneCount<LANES>: SupportedLaneCount,
+{
+    // Branchless computation
+    let zero = SimdU8::<LANES>::splat(b'0');
+    let nine = SimdU8::<LANES>::splat(b'9');
+    let gap = SimdU8::<LANES>::splat(b'A' - b'9' - 1);
+    let lower_gap = SimdU8::<LANES>::splat(b'a' - b'A');
+
+    // Normalize: convert to 0-15 range assuming valid input
+    // '0'-'9' -> 0-9
+    // 'A'-'F' -> 10-15 (after subtracting gap)
+    // 'a'-'f' -> 10-15 (after subtracting both gaps)
+
+    let mut val = n - zero;
+
+    // If > '9', subtract the gap to 'A'
+    let gt_nine = n.simd_gt(nine);
+    val = gt_nine.select(val - gap, val);
+
+    // If >= 'a', subtract additional gap
+    let ge_lower_a = n.simd_ge(SimdU8::<LANES>::splat(b'a'));
+    val = ge_lower_a.select(val - lower_gap, val);
+
+    // Validation: check if result is in valid range [0, 15]
+    let valid = val.simd_le(SimdU8::<LANES>::splat(15));
+
+    (val, valid.all())
+}
+
+#[cfg(feature = "test-util")]
+#[inline(always)]
+pub fn decode_remainder_simd_bench(
+    input: &[u8],
+    output: &mut [MaybeUninit<u8>],
+    pos: usize,
+    out_pos: usize,
+    remaining: usize,
+) -> Result<(), Error> {
+    decode_remainder_simd(input, output, pos, out_pos, remaining)
+}
+
+#[allow(dead_code)]
+#[inline(always)]
+fn decode_remainder_simd(
+    input: &[u8],
+    output: &mut [MaybeUninit<u8>],
+    pos: usize,
+    out_pos: usize,
+    remaining: usize,
+) -> Result<(), Error> {
+    let pairs = remaining / 2;
+
+    // Use 16-byte SIMD (works on both x86 SSE and ARM NEON)
+    let mut high_arr = [b'0'; 16];
+    let mut low_arr = [b'0'; 16];
+
+    // Unrolled for better performance
+    let pairs_to_process = pairs.min(16);
+    for j in 0..pairs_to_process {
+        unsafe {
+            high_arr[j] = *input.get_unchecked(pos + j * 2);
+            low_arr[j] = *input.get_unchecked(pos + j * 2 + 1);
+        }
     }
 
-    debug_assert_eq!(out_pos, output.len());
+    let high_simd = Simd::<u8, 16>::from_array(high_arr);
+    let low_simd = Simd::<u8, 16>::from_array(low_arr);
+
+    let (high_nibbles, high_valid) = decode_hex_nibbles(high_simd);
+    let (low_nibbles, low_valid) = decode_hex_nibbles(low_simd);
+
+    if !(high_valid & low_valid) {
+        return Err(Error::from(ErrorKind::InvalidData));
+    }
+
+    let decoded = (high_nibbles << Simd::splat(4)) | low_nibbles;
+    let decoded: &[u8; 16] = decoded.as_array();
+    let uninit_src: &[MaybeUninit<u8>; 16] =
+        unsafe { std::mem::transmute(decoded) };
+
+    output[out_pos..out_pos + pairs_to_process]
+        .copy_from_slice(&uninit_src[..pairs_to_process]);
+
+    Ok(())
+}
+
+#[cfg(feature = "test-util")]
+#[inline(always)]
+pub fn decode_remainder_lut_bench(
+    input: &[u8],
+    output: &mut [MaybeUninit<u8>],
+    pos: usize,
+    out_pos: usize,
+    remaining: usize,
+) -> Result<(), Error> {
+    decode_remainder_lut(input, output, pos, out_pos, remaining)
+}
+
+#[inline(always)]
+fn decode_remainder_lut(
+    input: &[u8],
+    output: &mut [MaybeUninit<u8>],
+    mut pos: usize,
+    mut out_pos: usize,
+    remaining: usize,
+) -> Result<(), Error> {
+    let end = pos + remaining;
+
+    while pos < end {
+        let hi = HEX_DECODE_LUT[input[pos] as usize];
+        let lo = HEX_DECODE_LUT[input[pos + 1] as usize];
+
+        if (hi | lo) == 255 {
+            return Err(Error::from(ErrorKind::InvalidData));
+        }
+
+        output[out_pos].write((hi << 4) | lo);
+        pos += 2;
+        out_pos += 1;
+    }
 
     Ok(())
 }
