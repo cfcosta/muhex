@@ -4,14 +4,8 @@ use std::{
     io::{Error, ErrorKind},
     mem::MaybeUninit,
     simd::{
-        LaneCount,
-        Simd,
-        SupportedLaneCount,
-        cmp::SimdPartialOrd,
-        simd_swizzle,
-        u8x16,
-        u8x32,
-        u8x64,
+        cmp::SimdPartialOrd, simd_swizzle, u8x16, u8x32, u8x64, LaneCount,
+        Simd, SupportedLaneCount,
     },
 };
 
