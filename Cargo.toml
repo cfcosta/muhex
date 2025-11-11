@@ -1,8 +1,11 @@
 [package]
 name = "muhex"
-version = "0.4.0"
+version = "0.4.1"
 description = "A zero-dependencies, SIMD enabled hex crate"
-authors = ["Caina Costa <me@cfcosta.com>"]
+authors = [
+  "Caina Costa <me@cfcosta.com>",
+  "Maxim Biryukov <biryukov.maxim.vladimirovich@yandex.ru>",
+]
 categories = ["encoding"]
 edition = "2024"
 license = "MIT OR Apache-2.0"
