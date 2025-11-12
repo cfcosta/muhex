@@ -141,7 +141,8 @@ where
 {
     let data = v.as_ref();
     let expected_len = data.len() * 2;
-    let dst = dst.dst();
+    // SAFETY: We only write fully initialized bytes through encode_simd_* and encode_scalar
+    let dst = unsafe { dst.dst() };
     if dst.len() != expected_len {
         return Err(Error::new(
             ErrorKind::InvalidInput,
@@ -179,7 +180,8 @@ where
 {
     let input = input.as_bytes();
     let expected_len = required_output_len(input.len())?;
-    let output = output.dst();
+    // SAFETY: We only write fully initialized bytes through decode_into
+    let output = unsafe { output.dst() };
     if output.len() != expected_len {
         return Err(Error::new(
             ErrorKind::InvalidInput,
