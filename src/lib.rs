@@ -6,15 +6,15 @@ use std::arch::x86_64::*;
 use std::{
     io::{Error, ErrorKind},
     mem::MaybeUninit,
-    simd::{
-        LaneCount, Simd, SupportedLaneCount, cmp::SimdPartialOrd,
-        simd_swizzle,
-    },
 };
 
 #[cfg(not(target_arch = "x86_64"))]
-use std::simd::{u8x16, u8x32, u8x64};
+use std::simd::{
+    LaneCount, Simd, SupportedLaneCount, cmp::SimdPartialOrd, simd_swizzle,
+    u8x16, u8x32, u8x64,
+};
 
+#[cfg(not(target_arch = "x86_64"))]
 type SimdU8<const LANES: usize> = Simd<u8, LANES>;
 
 #[cfg(feature = "serde")]
@@ -307,6 +307,250 @@ where
     Ok(())
 }
 
+// ─── Decode: x86_64 vpermi2b-based fast paths ──────────────────────────
+
+// 128-byte LUT for vpermi2b hex decode.
+// vpermi2b uses 7-bit indices: bits[5:0] = offset within 64-byte source,
+// bit[6] selects source (0 = LUT_LO, 1 = LUT_HI).
+//
+// '0'-'9' (0x30-0x39): bit6=0, indices 0x30-0x39 in LUT_LO → values 0-9
+// 'A'-'F' (0x41-0x46): bit6=1, indices 0x01-0x06 in LUT_HI → values 10-15
+// 'a'-'f' (0x61-0x66): bit6=1, indices 0x21-0x26 in LUT_HI → values 10-15
+// Everything else → 0x80 (invalid sentinel, bit 7 set)
+#[cfg(target_arch = "x86_64")]
+#[repr(align(64))]
+struct Aligned64([u8; 64]);
+
+#[cfg(target_arch = "x86_64")]
+static HEX_DECODE_VPERMI2B_LO: Aligned64 = Aligned64([
+    0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // 0x00..0x07
+    0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // 0x08..0x0F
+    0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // 0x10..0x17
+    0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // 0x18..0x1F
+    0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // 0x20..0x27
+    0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // 0x28..0x2F
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, // 0x30..0x37 '0'..'7'
+    0x08, 0x09, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // 0x38..0x3F '8','9',invalid
+]);
+
+#[cfg(target_arch = "x86_64")]
+static HEX_DECODE_VPERMI2B_HI: Aligned64 = Aligned64([
+    0x80, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x80, // 0x00..0x07 'A'..'F' at 01..06
+    0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // 0x08..0x0F
+    0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // 0x10..0x17
+    0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // 0x18..0x1F
+    0x80, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x80, // 0x20..0x27 'a'..'f' at 21..26
+    0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // 0x28..0x2F
+    0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // 0x30..0x37
+    0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // 0x38..0x3F
+]);
+
+/// Decode 128 hex chars → 64 output bytes using vpermi2b + vpmaddubsw.
+/// No deinterleave needed — processes interleaved hex pairs in-place.
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+unsafe fn decode_x86_128(
+    input: *const u8,
+    output: *mut MaybeUninit<u8>,
+) -> bool {
+    unsafe {
+        let lut_lo = _mm512_load_si512(HEX_DECODE_VPERMI2B_LO.0.as_ptr().cast());
+        let lut_hi = _mm512_load_si512(HEX_DECODE_VPERMI2B_HI.0.as_ptr().cast());
+        let sentinel = _mm512_set1_epi8(0x80u8 as i8);
+        let merge = _mm512_set1_epi16(0x0110);
+
+        let v0 = _mm512_loadu_si512(input.cast());
+        let v1 = _mm512_loadu_si512(input.add(64).cast());
+
+        let mut nib0 = v0;
+        nib0 = _mm512_permutex2var_epi8(lut_lo, nib0, lut_hi);
+        let mut nib1 = v1;
+        nib1 = _mm512_permutex2var_epi8(lut_lo, nib1, lut_hi);
+
+        let err0 = _mm512_test_epi8_mask(nib0, sentinel);
+        let err1 = _mm512_test_epi8_mask(nib1, sentinel);
+        if (err0 | err1) != 0 {
+            return false;
+        }
+
+        let words0 = _mm512_maddubs_epi16(nib0, merge);
+        let words1 = _mm512_maddubs_epi16(nib1, merge);
+
+        let packed = _mm512_packus_epi16(words0, words1);
+
+        // Fix lane ordering: vpackuswb interleaves per 128-bit lane.
+        // Qword permutation: [0, 2, 4, 6, 1, 3, 5, 7]
+        let perm = _mm512_set_epi64(7, 5, 3, 1, 6, 4, 2, 0);
+        let result = _mm512_permutexvar_epi64(perm, packed);
+
+        _mm512_storeu_si512(output.cast(), result);
+        true
+    }
+}
+
+/// Decode 64 hex chars → 32 output bytes using vpermi2b + vpmaddubsw.
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+unsafe fn decode_x86_64(
+    input: *const u8,
+    output: *mut MaybeUninit<u8>,
+) -> bool {
+    unsafe {
+        let lut_lo = _mm512_load_si512(HEX_DECODE_VPERMI2B_LO.0.as_ptr().cast());
+        let lut_hi = _mm512_load_si512(HEX_DECODE_VPERMI2B_HI.0.as_ptr().cast());
+        let sentinel = _mm512_set1_epi8(0x80u8 as i8);
+        let merge = _mm512_set1_epi16(0x0110);
+
+        let v = _mm512_loadu_si512(input.cast());
+        let mut nibbles = v;
+        nibbles = _mm512_permutex2var_epi8(lut_lo, nibbles, lut_hi);
+
+        let err = _mm512_test_epi8_mask(nibbles, sentinel);
+        if err != 0 {
+            return false;
+        }
+
+        let words = _mm512_maddubs_epi16(nibbles, merge);
+        let packed = _mm512_cvtepi16_epi8(words);
+
+        _mm256_storeu_si256(output.cast(), packed);
+        true
+    }
+}
+
+// ─── Decode: AVX2/SSE remainder paths using pshufb ─────────────────────
+
+// For AVX2/SSE (no vpermi2b), use high-nibble classification of the
+// original input with offset + range validation via two pshufb LUTs.
+//
+// High nibble of input classifies char type:
+//   3 → '0'-'9' (and ':'-'?', need range check)
+//   4 → 'A'-'F' (and '@','G'-'O', need range check)
+//   6 → 'a'-'f' (and '`','g'-'o', need range check)
+//
+// offset_lut: maps high_nibble → offset to add to get nibble value
+// bound_lut: maps high_nibble → (9 - max_valid_low_nibble) as unsigned,
+//            so that adding it to the low nibble produces > 9 for invalid
+
+/// Decode 32 hex chars → 16 output bytes using AVX2 pshufb.
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+unsafe fn decode_x86_32(
+    input: *const u8,
+    output: *mut MaybeUninit<u8>,
+) -> bool {
+    unsafe {
+        let v = _mm256_loadu_si256(input.cast());
+        let mask_0f = _mm256_set1_epi8(0x0F);
+
+        let hi_nib = _mm256_and_si256(_mm256_srli_epi16(v, 4), mask_0f);
+        let lo_nib = _mm256_and_si256(v, mask_0f);
+
+        let offset_lut = _mm256_broadcastsi128_si256(_mm_setr_epi8(
+            0, 0, 0, -0x30i8,
+            -0x37i8, 0, -0x57i8, 0,
+            0, 0, 0, 0,
+            0, 0, 0, 0,
+        ));
+
+        // Max low nibble LUT: invalid classes get 0, with min=0xFF,
+        // so no lo_nib can satisfy min <= lo_nib <= max.
+        let maxlo_lut = _mm256_broadcastsi128_si256(_mm_setr_epi8(
+            0, 0, 0, 9,          // hi=0-3: invalid×3, '0'-'9' max lo=9
+            6, 0, 6, 0,          // hi=4-7: 'A'-'F' max lo=6, invalid, 'a'-'f' max lo=6, invalid
+            0, 0, 0, 0,          // hi=8-B: invalid
+            0, 0, 0, 0,          // hi=C-F: invalid
+        ));
+
+        let minlo_lut = _mm256_broadcastsi128_si256(_mm_setr_epi8(
+            -1, -1, -1, 0,       // hi=0-3: invalid(min=0xFF)×3, '0'-'9' min lo=0
+            1, -1, 1, -1,        // hi=4-7: 'A'-'F' min lo=1, invalid(0xFF), 'a'-'f' min lo=1, invalid(0xFF)
+            -1, -1, -1, -1,      // hi=8-B: invalid
+            -1, -1, -1, -1,      // hi=C-F: invalid
+        ));
+
+        let offsets = _mm256_shuffle_epi8(offset_lut, hi_nib);
+        let nibbles = _mm256_add_epi8(v, offsets);
+
+        let max_vals = _mm256_shuffle_epi8(maxlo_lut, hi_nib);
+        let min_vals = _mm256_shuffle_epi8(minlo_lut, hi_nib);
+
+        let clamped_hi = _mm256_min_epu8(lo_nib, max_vals);
+        let clamped_lo = _mm256_max_epu8(lo_nib, min_vals);
+        let ok_hi = _mm256_cmpeq_epi8(clamped_hi, lo_nib);
+        let ok_lo = _mm256_cmpeq_epi8(clamped_lo, lo_nib);
+        let ok = _mm256_and_si256(ok_hi, ok_lo);
+        if _mm256_movemask_epi8(ok) != -1i32 {
+            return false;
+        }
+
+        let merge = _mm256_set1_epi16(0x0110);
+        let words = _mm256_maddubs_epi16(nibbles, merge);
+
+        let packed = _mm256_cvtepi16_epi8(words);
+        _mm_storeu_si128(output.cast(), packed);
+        true
+    }
+}
+
+/// Decode 16 hex chars → 8 output bytes using SSE pshufb.
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+unsafe fn decode_x86_16(
+    input: *const u8,
+    output: *mut MaybeUninit<u8>,
+) -> bool {
+    unsafe {
+        let v = _mm_loadu_si128(input.cast());
+        let mask_0f = _mm_set1_epi8(0x0F);
+
+        let hi_nib = _mm_and_si128(_mm_srli_epi16(v, 4), mask_0f);
+        let lo_nib = _mm_and_si128(v, mask_0f);
+
+        let offset_lut = _mm_setr_epi8(
+            0, 0, 0, -0x30i8,
+            -0x37i8, 0, -0x57i8, 0,
+            0, 0, 0, 0,
+            0, 0, 0, 0,
+        );
+
+        let maxlo_lut = _mm_setr_epi8(
+            0, 0, 0, 9,
+            6, 0, 6, 0,
+            0, 0, 0, 0,
+            0, 0, 0, 0,
+        );
+
+        let minlo_lut = _mm_setr_epi8(
+            -1, -1, -1, 0,
+            1, -1, 1, -1,
+            -1, -1, -1, -1,
+            -1, -1, -1, -1,
+        );
+
+        let offsets = _mm_shuffle_epi8(offset_lut, hi_nib);
+        let nibbles = _mm_add_epi8(v, offsets);
+
+        let max_vals = _mm_shuffle_epi8(maxlo_lut, hi_nib);
+        let min_vals = _mm_shuffle_epi8(minlo_lut, hi_nib);
+
+        let clamped_hi = _mm_min_epu8(lo_nib, max_vals);
+        let clamped_lo = _mm_max_epu8(lo_nib, min_vals);
+        let ok_hi = _mm_cmpeq_epi8(clamped_hi, lo_nib);
+        let ok_lo = _mm_cmpeq_epi8(clamped_lo, lo_nib);
+        let ok = _mm_and_si128(ok_hi, ok_lo);
+        if _mm_movemask_epi8(ok) != 0xFFFF {
+            return false;
+        }
+
+        let merge = _mm_set1_epi16(0x0110);
+        let words = _mm_maddubs_epi16(nibbles, merge);
+        let packed = _mm_packus_epi16(words, _mm_setzero_si128());
+        _mm_storel_epi64(output.cast(), packed);
+        true
+    }
+}
+
 // ─── Decode ─────────────────────────────────────────────────────────────
 
 #[inline]
@@ -387,6 +631,136 @@ const HEX_DECODE_LUT: [u8; 256] = {
     lut
 };
 
+// x86_64: use intrinsic-based decode paths
+#[cfg(target_arch = "x86_64")]
+#[inline]
+fn decode_into(
+    input: &[u8],
+    output: &mut [MaybeUninit<u8>],
+) -> Result<(), Error> {
+    let n = input.len();
+
+    if n % 2 != 0 {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "input length must be even",
+        ));
+    }
+
+    let mut pos = 0;
+    let mut out_pos = 0;
+
+    unsafe {
+        // Main loop: 128 hex chars → 64 output bytes per iteration
+        while pos + 128 <= n {
+            if !decode_x86_128(
+                input.as_ptr().add(pos),
+                output.as_mut_ptr().add(out_pos),
+            ) {
+                return Err(invalid_hex_char_error());
+            }
+            pos += 128;
+            out_pos += 64;
+        }
+
+        // Remainder: 64 hex chars
+        if pos + 64 <= n {
+            if !decode_x86_64(
+                input.as_ptr().add(pos),
+                output.as_mut_ptr().add(out_pos),
+            ) {
+                return Err(invalid_hex_char_error());
+            }
+            pos += 64;
+            out_pos += 32;
+        }
+    }
+
+    // Handle remainder with overlapping SIMD reads
+    if pos < n {
+        if n >= 128 {
+            // Re-decode last 128 hex bytes via overlapping
+            let start = n - 128;
+            let out_start = start / 2;
+            if !unsafe {
+                decode_x86_128(
+                    input.as_ptr().add(start),
+                    output.as_mut_ptr().add(out_start),
+                )
+            } {
+                return Err(invalid_hex_char_error());
+            }
+        } else if n >= 64 {
+            // Re-decode last 64 hex bytes via overlapping
+            let start = n - 64;
+            let out_start = start / 2;
+            if !unsafe {
+                decode_x86_64(
+                    input.as_ptr().add(start),
+                    output.as_mut_ptr().add(out_start),
+                )
+            } {
+                return Err(invalid_hex_char_error());
+            }
+        } else if n >= 32 {
+            // Use AVX2 32-byte path with overlapping
+            unsafe {
+                // First 32 hex bytes
+                if pos + 32 <= n {
+                    if !decode_x86_32(
+                        input.as_ptr().add(pos),
+                        output.as_mut_ptr().add(out_pos),
+                    ) {
+                        return Err(invalid_hex_char_error());
+                    }
+                    pos += 32;
+                }
+                // Overlapping last 32 hex bytes if remainder
+                if pos < n {
+                    let start = n - 32;
+                    let out_start = start / 2;
+                    if !decode_x86_32(
+                        input.as_ptr().add(start),
+                        output.as_mut_ptr().add(out_start),
+                    ) {
+                        return Err(invalid_hex_char_error());
+                    }
+                }
+            }
+        } else if n >= 16 {
+            // Use SSE 16-byte path with overlapping
+            unsafe {
+                if !decode_x86_16(
+                    input.as_ptr().add(pos),
+                    output.as_mut_ptr().add(out_pos),
+                ) {
+                    return Err(invalid_hex_char_error());
+                }
+                if n > 16 {
+                    let start = n - 16;
+                    let out_start = start / 2;
+                    if !decode_x86_16(
+                        input.as_ptr().add(start),
+                        output.as_mut_ptr().add(out_start),
+                    ) {
+                        return Err(invalid_hex_char_error());
+                    }
+                }
+            }
+        } else {
+            // < 16 hex bytes: scalar LUT fallback
+            let remaining = n - pos;
+            decode_remainder_lut(
+                input, output, pos, out_pos, remaining,
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+// Non-x86_64: portable_simd fallback decode
+#[cfg(not(target_arch = "x86_64"))]
 #[inline(always)]
 fn decode_simd_64(
     input: &[u8],
@@ -412,13 +786,13 @@ fn decode_simd_64(
     let decoded = (high_nibbles << SimdU8::<32>::splat(4)) | low_nibbles;
 
     let decoded: &[u8; 32] = decoded.as_array();
-    // SAFETY: &[u8; 32] and &[MaybeUninit<u8>; 32] have the same layout
     let uninit_src: &[MaybeUninit<u8>; 32] =
         unsafe { std::mem::transmute(decoded) };
     output.copy_from_slice(uninit_src);
     Ok(())
 }
 
+#[cfg(not(target_arch = "x86_64"))]
 #[inline(always)]
 fn decode_simd_32(
     input: &[u8],
@@ -441,13 +815,13 @@ fn decode_simd_32(
 
     let decoded = (high_nibbles << SimdU8::<16>::splat(4)) | low_nibbles;
     let decoded: &[u8; 16] = decoded.as_array();
-    // SAFETY: &[u8;16] and &[MaybeUninit<u8>; 16] have the same layout
     let uninit_src: &[MaybeUninit<u8>; 16] =
         unsafe { std::mem::transmute(decoded) };
     output.copy_from_slice(uninit_src);
     Ok(())
 }
 
+#[cfg(not(target_arch = "x86_64"))]
 #[inline]
 fn decode_into(
     input: &[u8],
@@ -465,44 +839,17 @@ fn decode_into(
     let mut pos = 0;
     let mut out_pos = 0;
 
-    // Process 64 bytes at a time with combined validation + decode
     while pos + 64 <= n {
-        let chunk_vec: SimdU8<64> = Simd::from_slice(&input[pos..pos + 64]);
-
-        let high_bytes: SimdU8<32> = simd_swizzle!(chunk_vec, [
-            0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32,
-            34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62
-        ]);
-        let low_bytes: SimdU8<32> = simd_swizzle!(chunk_vec, [
-            1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33,
-            35, 37, 39, 41, 43, 45, 47, 49, 51, 53, 55, 57, 59, 61, 63
-        ]);
-
-        let (high_nibbles, high_valid) = decode_hex_nibbles(high_bytes);
-        let (low_nibbles, low_valid) = decode_hex_nibbles(low_bytes);
-
-        if !(high_valid & low_valid) {
-            return Err(invalid_hex_char_error());
-        }
-        let decoded =
-            (high_nibbles << SimdU8::<32>::splat(4)) | low_nibbles;
-
-        let decoded: &[u8; 32] = decoded.as_array();
-        // SAFETY: &[u8; 32] and &[MaybeUninit<u8>; 32] have the
-        // same layout
-        let uninit_src: &[MaybeUninit<u8>; 32] =
-            unsafe { std::mem::transmute(decoded) };
-        output[out_pos..out_pos + 32].copy_from_slice(uninit_src);
-
+        decode_simd_64(
+            &input[pos..pos + 64],
+            &mut output[out_pos..out_pos + 32],
+        )?;
         pos += 64;
         out_pos += 32;
     }
 
-    // Handle remainder with overlapping SIMD reads to avoid
-    // the LUT fallback for inputs >= 32 hex chars
     if pos < n {
         if n >= 64 {
-            // Re-decode last 64 hex bytes via overlapping SIMD
             let start = n - 64;
             let out_start = start / 2;
             decode_simd_64(
@@ -510,43 +857,16 @@ fn decode_into(
                 &mut output[out_start..out_start + 32],
             )?;
         } else {
-            // n < 64: process 32 bytes at a time
             while pos + 32 <= n {
-                let chunk_vec: SimdU8<32> =
-                    Simd::from_slice(&input[pos..pos + 32]);
-                let high_bytes: SimdU8<16> = simd_swizzle!(chunk_vec, [
-                    0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28,
-                    30
-                ]);
-                let low_bytes: SimdU8<16> = simd_swizzle!(chunk_vec, [
-                    1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29,
-                    31
-                ]);
-
-                let (high_nibbles, high_valid) =
-                    decode_hex_nibbles(high_bytes);
-                let (low_nibbles, low_valid) =
-                    decode_hex_nibbles(low_bytes);
-
-                if !(high_valid & low_valid) {
-                    return Err(invalid_hex_char_error());
-                }
-
-                let decoded =
-                    (high_nibbles << SimdU8::<16>::splat(4)) | low_nibbles;
-                let decoded: &[u8; 16] = decoded.as_array();
-                // SAFETY: &[u8;16] and &[MaybeUninit<u8>; 16] have
-                // the same layout
-                let uninit_src: &[MaybeUninit<u8>; 16] =
-                    unsafe { std::mem::transmute(decoded) };
-                output[out_pos..out_pos + 16].copy_from_slice(uninit_src);
+                decode_simd_32(
+                    &input[pos..pos + 32],
+                    &mut output[out_pos..out_pos + 16],
+                )?;
                 pos += 32;
                 out_pos += 16;
             }
-
             if pos < n {
                 if n >= 32 {
-                    // Re-decode last 32 hex bytes via overlapping
                     let start = n - 32;
                     let out_start = start / 2;
                     decode_simd_32(
@@ -554,7 +874,6 @@ fn decode_into(
                         &mut output[out_start..out_start + 16],
                     )?;
                 } else {
-                    // < 32 hex bytes: LUT fallback
                     let remaining = n - pos;
                     decode_remainder_lut(
                         input, output, pos, out_pos, remaining,
@@ -567,6 +886,7 @@ fn decode_into(
     Ok(())
 }
 
+#[cfg(not(target_arch = "x86_64"))]
 #[inline(always)]
 fn decode_hex_nibbles<const LANES: usize>(
     n: SimdU8<LANES>,
@@ -582,17 +902,12 @@ where
 
     let mut val = n - zero;
 
-    // If > '9', subtract the gap to 'A'
     let gt_nine = n.simd_gt(nine);
     val = gt_nine.select(val - gap, val);
 
-    // If >= 'a', subtract additional gap
     let ge_lower_a = n.simd_ge(SimdU8::<LANES>::splat(b'a'));
     val = ge_lower_a.select(val - lower_gap, val);
 
-    // Validation: result must be in [0, 15] AND chars in the ':'-'@'
-    // gap (0x3A-0x40) must be rejected. These produce values 3-9 after
-    // gap subtraction, which would falsely pass val <= 15.
     let ge_upper_a = n.simd_ge(upper_a);
     let in_gap = gt_nine & !ge_upper_a;
     let valid = val.simd_le(SimdU8::<LANES>::splat(15)) & !in_gap;
