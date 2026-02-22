@@ -134,8 +134,8 @@ def render_operation_table(
 
     lines.extend(
         [
-            "| size | hex | muhex | faster-hex | speedup |",
-            "| --- | ---: | ---: | ---: | ---: |",
+            "| size | hex | muhex | faster-hex | muhex vs hex | muhex vs faster-hex |",
+            "| --- | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
 
@@ -157,13 +157,19 @@ def render_operation_table(
             rendered[implementation] = formatted
 
         hex_value = values.get("hex")
-        speedup = None
-        if hex_value is not None and fastest is not None:
-            speedup = fastest / hex_value
+        muhex_value = values.get("muhex")
+        faster_hex_value = values.get("faster-hex")
+        muhex_vs_hex = None
+        if muhex_value is not None and hex_value is not None:
+            muhex_vs_hex = muhex_value / hex_value
+        muhex_vs_faster_hex = None
+        if muhex_value is not None and faster_hex_value is not None:
+            muhex_vs_faster_hex = muhex_value / faster_hex_value
 
         lines.append(
             f"| `{size_label}` | {rendered['hex']} | {rendered['muhex']} | "
-            f"{rendered['faster-hex']} | {format_speedup(speedup)} |"
+            f"{rendered['faster-hex']} | {format_speedup(muhex_vs_hex)} | "
+            f"{format_speedup(muhex_vs_faster_hex)} |"
         )
 
     lines.append("")

@@ -469,50 +469,6 @@ where
 }
 
 #[inline(always)]
-fn decode_remainder_simd(
-    input: &[u8],
-    output: &mut [MaybeUninit<u8>],
-    pos: usize,
-    out_pos: usize,
-    remaining: usize,
-) -> Result<(), Error> {
-    let pairs = remaining / 2;
-
-    // Use 16-byte SIMD (works on both x86 SSE and ARM NEON)
-    let mut high_arr = [b'0'; 16];
-    let mut low_arr = [b'0'; 16];
-
-    // Unrolled for better performance
-    let pairs_to_process = pairs.min(16);
-    for j in 0..pairs_to_process {
-        unsafe {
-            high_arr[j] = *input.get_unchecked(pos + j * 2);
-            low_arr[j] = *input.get_unchecked(pos + j * 2 + 1);
-        }
-    }
-
-    let high_simd = Simd::<u8, 16>::from_array(high_arr);
-    let low_simd = Simd::<u8, 16>::from_array(low_arr);
-
-    let (high_nibbles, high_valid) = decode_hex_nibbles(high_simd);
-    let (low_nibbles, low_valid) = decode_hex_nibbles(low_simd);
-
-    if !(high_valid & low_valid) {
-        return Err(Error::from(ErrorKind::InvalidData));
-    }
-
-    let decoded = (high_nibbles << Simd::splat(4)) | low_nibbles;
-    let decoded: &[u8; 16] = decoded.as_array();
-    let uninit_src: &[MaybeUninit<u8>; 16] =
-        unsafe { std::mem::transmute(decoded) };
-
-    output[out_pos..out_pos + pairs_to_process]
-        .copy_from_slice(&uninit_src[..pairs_to_process]);
-
-    Ok(())
-}
-
-#[inline(always)]
 fn decode_remainder_lut(
     input: &[u8],
     output: &mut [MaybeUninit<u8>],
