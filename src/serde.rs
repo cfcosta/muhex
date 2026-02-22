@@ -1,6 +1,6 @@
 use std::fmt;
 
-use serde::{de, Deserializer, Serializer};
+use serde::{Deserializer, Serializer, de};
 
 use crate::{decode, encode};
 
@@ -23,9 +23,9 @@ impl<const N: usize> FromBytes for [u8; N] {
     type Error = String;
 
     fn from_bytes(bytes: Vec<u8>) -> Result<Self, Self::Error> {
-        bytes.try_into().map_err(|v: Vec<u8>| {
-            format!("expected array of length {}, got length {}", N, v.len())
-        })
+        bytes
+            .try_into()
+            .map_err(|v: Vec<u8>| format!("expected array of length {}, got length {}", N, v.len()))
     }
 }
 
@@ -84,8 +84,7 @@ mod tests {
     fn test_serde_roundtrip(data: Vec<u8>) {
         let test_struct = TestStruct { data };
         let serialized = serde_json::to_string(&test_struct).unwrap();
-        let deserialized: TestStruct =
-            serde_json::from_str(&serialized).unwrap();
+        let deserialized: TestStruct = serde_json::from_str(&serialized).unwrap();
         prop_assert_eq!(test_struct, deserialized);
     }
 
@@ -93,8 +92,7 @@ mod tests {
     fn test_serde_roundtrip_fixed_width(data: [u8; 32]) {
         let test_struct = TestStructFixedWidth(data);
         let serialized = serde_json::to_string(&test_struct).unwrap();
-        let deserialized: TestStructFixedWidth =
-            serde_json::from_str(&serialized).unwrap();
+        let deserialized: TestStructFixedWidth = serde_json::from_str(&serialized).unwrap();
         prop_assert_eq!(test_struct, deserialized);
     }
 
@@ -104,11 +102,8 @@ mod tests {
 
         prop_assert_eq!(
             super::serialize(&data, &mut serializer).map_err(|_| ()),
-            hex::serde::serialize(
-                &data,
-                &mut serde_json::Serializer::new(Vec::new())
-            )
-            .map_err(|_| ())
+            hex::serde::serialize(&data, &mut serde_json::Serializer::new(Vec::new()))
+                .map_err(|_| ())
         );
     }
 
@@ -119,10 +114,8 @@ mod tests {
         let mut our_de = serde_json::Deserializer::from_str(&hex_json);
         let mut hex_de = serde_json::Deserializer::from_str(&hex_json);
 
-        let our_result: Result<Vec<u8>, _> =
-            super::deserialize(&mut our_de).map_err(|_| ());
-        let hex_result: Result<Vec<u8>, _> =
-            hex::serde::deserialize(&mut hex_de).map_err(|_| ());
+        let our_result: Result<Vec<u8>, _> = super::deserialize(&mut our_de).map_err(|_| ());
+        let hex_result: Result<Vec<u8>, _> = hex::serde::deserialize(&mut hex_de).map_err(|_| ());
 
         prop_assert_eq!(our_result, hex_result);
     }

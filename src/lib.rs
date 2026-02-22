@@ -4,8 +4,14 @@ use std::{
     io::{Error, ErrorKind},
     mem::MaybeUninit,
     simd::{
-        cmp::SimdPartialOrd, simd_swizzle, u8x16, u8x32, u8x64, LaneCount,
-        Simd, SupportedLaneCount,
+        LaneCount,
+        Simd,
+        SupportedLaneCount,
+        cmp::SimdPartialOrd,
+        simd_swizzle,
+        u8x16,
+        u8x32,
+        u8x64,
     },
 };
 
@@ -36,17 +42,15 @@ fn encode_simd_32(input: &[u8], output: &mut [MaybeUninit<u8>]) {
         hi_ascii,
         lo_ascii,
         [
-            0, 32, 1, 33, 2, 34, 3, 35, 4, 36, 5, 37, 6, 38, 7, 39, 8, 40, 9,
-            41, 10, 42, 11, 43, 12, 44, 13, 45, 14, 46, 15, 47, 16, 48, 17, 49,
-            18, 50, 19, 51, 20, 52, 21, 53, 22, 54, 23, 55, 24, 56, 25, 57, 26,
-            58, 27, 59, 28, 60, 29, 61, 30, 62, 31, 63
+            0, 32, 1, 33, 2, 34, 3, 35, 4, 36, 5, 37, 6, 38, 7, 39, 8, 40, 9, 41, 10, 42, 11, 43, 12,
+            44, 13, 45, 14, 46, 15, 47, 16, 48, 17, 49, 18, 50, 19, 51, 20, 52, 21, 53, 22, 54, 23,
+            55, 24, 56, 25, 57, 26, 58, 27, 59, 28, 60, 29, 61, 30, 62, 31, 63
         ]
     );
 
     let interleaved: &[u8; 64] = interleaved.as_array();
     // SAFETY: &[u8;64] and &[MaybeUninit<u8>; 64] have the same layout
-    let uninit_src: &[MaybeUninit<u8>; 64] =
-        unsafe { std::mem::transmute(interleaved) };
+    let uninit_src: &[MaybeUninit<u8>; 64] = unsafe { std::mem::transmute(interleaved) };
     output.copy_from_slice(uninit_src);
 }
 
@@ -68,25 +72,19 @@ fn encode_simd_16(input: &[u8], output: &mut [MaybeUninit<u8>]) {
         hi_ascii,
         lo_ascii,
         [
-            0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23, 8, 24, 9,
-            25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31
+            0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23, 8, 24, 9, 25, 10, 26, 11, 27, 12,
+            28, 13, 29, 14, 30, 15, 31
         ]
     );
 
     let interleaved: &[u8; 32] = interleaved.as_array();
     // SAFETY: &[u8; 32] and &[MaybeUninit<u8>; 32] have the same layout
-    let uninit_src: &[MaybeUninit<u8>; 32] =
-        unsafe { std::mem::transmute(interleaved) };
+    let uninit_src: &[MaybeUninit<u8>; 32] = unsafe { std::mem::transmute(interleaved) };
     output.copy_from_slice(uninit_src);
 }
 
 #[inline(always)]
-fn nibble_to_ascii(
-    n: u8x16,
-    bias_0: u8x16,
-    bias_a: u8x16,
-    cmp_9: u8x16,
-) -> u8x16 {
+fn nibble_to_ascii(n: u8x16, bias_0: u8x16, bias_a: u8x16, cmp_9: u8x16) -> u8x16 {
     let mask_gt_9 = n.simd_gt(cmp_9);
     let base_0 = n + bias_0;
     let base_a = n + bias_a;
@@ -95,12 +93,7 @@ fn nibble_to_ascii(
 }
 
 #[inline(always)]
-fn nibble_to_ascii_32(
-    n: u8x32,
-    bias_0: u8x32,
-    bias_a: u8x32,
-    cmp_9: u8x32,
-) -> u8x32 {
+fn nibble_to_ascii_32(n: u8x32, bias_0: u8x32, bias_a: u8x32, cmp_9: u8x32) -> u8x32 {
     let mask_gt_9 = n.simd_gt(cmp_9);
     let base_0 = n + bias_0;
     let base_a = n + bias_a;
@@ -114,10 +107,8 @@ fn encode_scalar(data: &[u8], result: &mut [MaybeUninit<u8>]) {
         let hi = (byte >> 4) as usize;
         let lo = (byte & 0xf) as usize;
 
-        result[i * 2]
-            .write(b'0' + hi as u8 + ((hi >= 10) as u8) * (b'a' - b'0' - 10));
-        result[i * 2 + 1]
-            .write(b'0' + lo as u8 + ((lo >= 10) as u8) * (b'a' - b'0' - 10));
+        result[i * 2].write(b'0' + hi as u8 + ((hi >= 10) as u8) * (b'a' - b'0' - 10));
+        result[i * 2 + 1].write(b'0' + lo as u8 + ((lo >= 10) as u8) * (b'a' - b'0' - 10));
     }
 }
 
@@ -125,8 +116,7 @@ fn encode_scalar(data: &[u8], result: &mut [MaybeUninit<u8>]) {
 pub fn encode<T: AsRef<[u8]>>(v: T) -> String {
     let data = v.as_ref();
     let mut result = Vec::with_capacity(data.len() * 2);
-    encode_to_buf(data, result.spare_capacity_mut())
-        .expect("Len of result is always correct");
+    encode_to_buf(data, result.spare_capacity_mut()).expect("Len of result is always correct");
     unsafe {
         result.set_len(data.len() * 2);
     }
@@ -161,13 +151,24 @@ where
         pos += 32;
     }
 
-    while pos + 16 <= data.len() {
-        encode_simd_16(&data[pos..pos + 16], &mut dst[pos * 2..(pos + 16) * 2]);
-        pos += 16;
-    }
-
+    // Handle remainder with overlapping SIMD reads to avoid
+    // the scalar fallback for inputs >= 16 bytes
     if pos < data.len() {
-        encode_scalar(&data[pos..], &mut dst[pos * 2..]);
+        if data.len() >= 32 {
+            // Re-encode last 32 bytes with overlapping SIMD
+            let start = data.len() - 32;
+            encode_simd_32(&data[start..], &mut dst[start * 2..]);
+        } else if data.len() >= 16 {
+            // 16-31 bytes: one 16-byte SIMD + overlapping 16
+            encode_simd_16(&data[0..16], &mut dst[0..32]);
+            if data.len() > 16 {
+                let start = data.len() - 16;
+                encode_simd_16(&data[start..], &mut dst[start * 2..]);
+            }
+        } else {
+            // < 16 bytes: scalar fallback
+            encode_scalar(&data[pos..], &mut dst[pos * 2..]);
+        }
     }
 
     Ok(())
@@ -251,10 +252,68 @@ const HEX_DECODE_LUT: [u8; 256] = {
     lut
 };
 
-fn decode_into(
-    input: &[u8],
-    output: &mut [MaybeUninit<u8>],
-) -> Result<(), Error> {
+#[inline(always)]
+fn decode_simd_64(input: &[u8], output: &mut [MaybeUninit<u8>]) -> Result<(), Error> {
+    let chunk_vec: SimdU8<64> = Simd::from_slice(input);
+
+    let high_bytes: SimdU8<32> = simd_swizzle!(
+        chunk_vec,
+        [
+            0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44,
+            46, 48, 50, 52, 54, 56, 58, 60, 62
+        ]
+    );
+    let low_bytes: SimdU8<32> = simd_swizzle!(
+        chunk_vec,
+        [
+            1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45,
+            47, 49, 51, 53, 55, 57, 59, 61, 63
+        ]
+    );
+
+    let (high_nibbles, high_valid) = decode_hex_nibbles(high_bytes);
+    let (low_nibbles, low_valid) = decode_hex_nibbles(low_bytes);
+
+    if !(high_valid & low_valid) {
+        return Err(invalid_hex_char_error());
+    }
+    let decoded = (high_nibbles << SimdU8::<32>::splat(4)) | low_nibbles;
+
+    let decoded: &[u8; 32] = decoded.as_array();
+    // SAFETY: &[u8; 32] and &[MaybeUninit<u8>; 32] have the same layout
+    let uninit_src: &[MaybeUninit<u8>; 32] = unsafe { std::mem::transmute(decoded) };
+    output.copy_from_slice(uninit_src);
+    Ok(())
+}
+
+#[inline(always)]
+fn decode_simd_32(input: &[u8], output: &mut [MaybeUninit<u8>]) -> Result<(), Error> {
+    let chunk_vec: SimdU8<32> = Simd::from_slice(input);
+    let high_bytes: SimdU8<16> = simd_swizzle!(
+        chunk_vec,
+        [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30]
+    );
+    let low_bytes: SimdU8<16> = simd_swizzle!(
+        chunk_vec,
+        [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31]
+    );
+
+    let (high_nibbles, high_valid) = decode_hex_nibbles(high_bytes);
+    let (low_nibbles, low_valid) = decode_hex_nibbles(low_bytes);
+
+    if !(high_valid & low_valid) {
+        return Err(invalid_hex_char_error());
+    }
+
+    let decoded = (high_nibbles << SimdU8::<16>::splat(4)) | low_nibbles;
+    let decoded: &[u8; 16] = decoded.as_array();
+    // SAFETY: &[u8;16] and &[MaybeUninit<u8>; 16] have the same layout
+    let uninit_src: &[MaybeUninit<u8>; 16] = unsafe { std::mem::transmute(decoded) };
+    output.copy_from_slice(uninit_src);
+    Ok(())
+}
+
+fn decode_into(input: &[u8], output: &mut [MaybeUninit<u8>]) -> Result<(), Error> {
     let n = input.len();
 
     if n % 2 != 0 {
@@ -274,15 +333,15 @@ fn decode_into(
         let high_bytes: SimdU8<32> = simd_swizzle!(
             chunk_vec,
             [
-                0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32,
-                34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62
+                0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42,
+                44, 46, 48, 50, 52, 54, 56, 58, 60, 62
             ]
         );
         let low_bytes: SimdU8<32> = simd_swizzle!(
             chunk_vec,
             [
-                1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33,
-                35, 37, 39, 41, 43, 45, 47, 49, 51, 53, 55, 57, 59, 61, 63
+                1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43,
+                45, 47, 49, 51, 53, 55, 57, 59, 61, 63
             ]
         );
 
@@ -295,54 +354,79 @@ fn decode_into(
         let decoded = (high_nibbles << SimdU8::<32>::splat(4)) | low_nibbles;
 
         let decoded: &[u8; 32] = decoded.as_array();
-        // SAFETY: &[u8; 32] and &[MaybeUninit<u8>; 32] have the same layout
-        let uninit_src: &[MaybeUninit<u8>; 32] =
-            unsafe { std::mem::transmute(decoded) };
+        // SAFETY: &[u8; 32] and &[MaybeUninit<u8>; 32] have the
+        // same layout
+        let uninit_src: &[MaybeUninit<u8>; 32] = unsafe { std::mem::transmute(decoded) };
         output[out_pos..out_pos + 32].copy_from_slice(uninit_src);
 
         pos += 64;
         out_pos += 32;
     }
 
-    // Process 32 bytes at a time
-    while pos + 32 <= n {
-        let chunk_vec: SimdU8<32> = Simd::from_slice(&input[pos..pos + 32]);
-        let high_bytes: SimdU8<16> = simd_swizzle!(
-            chunk_vec,
-            [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30]
-        );
-        let low_bytes: SimdU8<16> = simd_swizzle!(
-            chunk_vec,
-            [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31]
-        );
+    // Handle remainder with overlapping SIMD reads to avoid
+    // the LUT fallback for inputs >= 32 hex chars
+    if pos < n {
+        if n >= 64 {
+            // Re-decode last 64 hex bytes via overlapping SIMD
+            let start = n - 64;
+            let out_start = start / 2;
+            decode_simd_64(
+                &input[start..start + 64],
+                &mut output[out_start..out_start + 32],
+            )?;
+        } else {
+            // n < 64: process 32 bytes at a time
+            while pos + 32 <= n {
+                let chunk_vec: SimdU8<32> = Simd::from_slice(&input[pos..pos + 32]);
+                let high_bytes: SimdU8<16> = simd_swizzle!(
+                    chunk_vec,
+                    [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30]
+                );
+                let low_bytes: SimdU8<16> = simd_swizzle!(
+                    chunk_vec,
+                    [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31]
+                );
 
-        let (high_nibbles, high_valid) = decode_hex_nibbles(high_bytes);
-        let (low_nibbles, low_valid) = decode_hex_nibbles(low_bytes);
+                let (high_nibbles, high_valid) = decode_hex_nibbles(high_bytes);
+                let (low_nibbles, low_valid) = decode_hex_nibbles(low_bytes);
 
-        if !(high_valid & low_valid) {
-            return Err(invalid_hex_char_error());
+                if !(high_valid & low_valid) {
+                    return Err(invalid_hex_char_error());
+                }
+
+                let decoded = (high_nibbles << SimdU8::<16>::splat(4)) | low_nibbles;
+                let decoded: &[u8; 16] = decoded.as_array();
+                // SAFETY: &[u8;16] and &[MaybeUninit<u8>; 16] have
+                // the same layout
+                let uninit_src: &[MaybeUninit<u8>; 16] = unsafe { std::mem::transmute(decoded) };
+                output[out_pos..out_pos + 16].copy_from_slice(uninit_src);
+                pos += 32;
+                out_pos += 16;
+            }
+
+            if pos < n {
+                if n >= 32 {
+                    // Re-decode last 32 hex bytes via overlapping
+                    let start = n - 32;
+                    let out_start = start / 2;
+                    decode_simd_32(
+                        &input[start..start + 32],
+                        &mut output[out_start..out_start + 16],
+                    )?;
+                } else {
+                    // < 32 hex bytes: LUT fallback
+                    let remaining = n - pos;
+                    decode_remainder_lut(input, output, pos, out_pos, remaining)?;
+                }
+            }
         }
-
-        let decoded = (high_nibbles << SimdU8::<16>::splat(4)) | low_nibbles;
-        let decoded: &[u8; 16] = decoded.as_array();
-        // SAFETY: &[u8;16] and &[MaybeUninit<u8>; 16] have the same layout
-        let uninit_src: &[MaybeUninit<u8>; 16] =
-            unsafe { std::mem::transmute(decoded) };
-        output[out_pos..out_pos + 16].copy_from_slice(uninit_src);
-        pos += 32;
-        out_pos += 16;
     }
-
-    let remaining = n - pos;
-    decode_remainder_lut(input, output, pos, out_pos, remaining)?;
 
     Ok(())
 }
 
 #[inline(always)]
-fn decode_hex_nibbles<const LANES: usize>(
-    n: SimdU8<LANES>,
-) -> (SimdU8<LANES>, bool)
+fn decode_hex_nibbles<const LANES: usize>(n: SimdU8<LANES>) -> (SimdU8<LANES>, bool)
 where
     LaneCount<LANES>: SupportedLaneCount,
 {
@@ -421,11 +505,9 @@ fn decode_remainder_simd(
 
     let decoded = (high_nibbles << Simd::splat(4)) | low_nibbles;
     let decoded: &[u8; 16] = decoded.as_array();
-    let uninit_src: &[MaybeUninit<u8>; 16] =
-        unsafe { std::mem::transmute(decoded) };
+    let uninit_src: &[MaybeUninit<u8>; 16] = unsafe { std::mem::transmute(decoded) };
 
-    output[out_pos..out_pos + pairs_to_process]
-        .copy_from_slice(&uninit_src[..pairs_to_process]);
+    output[out_pos..out_pos + pairs_to_process].copy_from_slice(&uninit_src[..pairs_to_process]);
 
     Ok(())
 }
@@ -509,8 +591,7 @@ mod tests {
     #[test]
     fn test_decode_to_slice_len_mismatch() {
         let mut buffer = [0u8; 1];
-        let err =
-            super::decode_to_slice("00", &mut buffer[..0]).expect_err("err");
+        let err = super::decode_to_slice("00", &mut buffer[..0]).expect_err("err");
         assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
     }
 }
