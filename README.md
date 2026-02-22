@@ -40,15 +40,4 @@ This is a benchmark on my own machine against the `hex` and
 * Command: `RUSTFLAGS="-C target-cpu=native -C target-feature=+avx2,+avx,+sse2" cargo bench --all-features`
 * Machine: Ryzen 7950X3D 128GB DDR5 RAM
 
-
-| Operation | Implementation | Time      | Throughput     | Speedup vs `hex` |
-|-----------|----------------|-----------|----------------|------------------|
-| Encode    | hex            | 2.8246 ms | 354.03 MiB/s   | 1x               |
-| Encode    | muhex          | 31.313 µs | 31.188 GiB/s   | ~90x             |
-| Encode    | faster-hex     | 45.955 µs | 21.250 GiB/s   | ~61x             |
-| Decode    | hex            | 5.1361 ms | 194.70 MiB/s   | 1x               |
-| Decode    | muhex          | 49.938 µs | 19.556 GiB/s   | ~103x            |
-| Decode    | faster-hex     | 109.85 µs | 8.8901 GiB/s   | ~47x             |
-
-
-Please note that we can only achieve this performance because we only work on nightly Rust and explicitly enforce SIMD. This is not a statement about the quality or performance of the competing crates—most applications may not benefit from any of these changes.
+Check [BENCHMARKS.md](./BENCHMARKS.md). In short: it's really fast, more than 100x faster in some points. Please note that we can only achieve this performance because we only work on nightly Rust and explicitly enforce SIMD. This is not a statement about the quality or performance of the competing crates—most applications may not benefit from any of these changes.
