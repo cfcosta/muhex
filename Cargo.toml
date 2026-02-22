@@ -26,7 +26,6 @@ test-strategy = "0.4.0"
 [features]
 default = []
 serde = ["dep:serde", "hex/serde"]
-test-util = []
 
 [[bench]]
 name = "benchmark"
