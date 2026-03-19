@@ -584,7 +584,7 @@ unsafe fn decode_x86_16(
 
 // ─── Decode ─────────────────────────────────────────────────────────────
 
-#[inline]
+#[inline(always)]
 pub fn decode_to_buf<Dst>(input: &str, output: &mut Dst) -> Result<(), Error>
 where
     Dst: Buf + ?Sized,
