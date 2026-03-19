@@ -664,7 +664,7 @@ const HEX_DECODE_LUT: [u8; 256] = {
 
 // x86_64: use intrinsic-based decode paths
 #[cfg(target_arch = "x86_64")]
-#[inline]
+#[inline(always)]
 fn decode_into(
     input: &[u8],
     output: &mut [MaybeUninit<u8>],
