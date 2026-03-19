@@ -7,32 +7,32 @@ Throughput is computed from `throughput.Bytes` and `new/estimates.json` mean tim
 
 | size | hex | muhex | faster-hex | muhex vs hex | muhex vs faster-hex |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `1MB_aligned` | 294.63 MiB/s | **34.17 GiB/s** | 21.82 GiB/s | 118.77x | 1.57x |
-| `1KB_aligned` | 296.93 MiB/s | **21.19 GiB/s** | 14.76 GiB/s | 73.08x | 1.44x |
-| `96B_aligned` | 285.19 MiB/s | **9.03 GiB/s** | 3.32 GiB/s | 32.43x | 2.72x |
-| `64B_aligned` | 278.56 MiB/s | **4.18 GiB/s** | 2.06 GiB/s | 15.37x | 2.03x |
-| `63B_unaligned` | 279.87 MiB/s | **4.12 GiB/s** | 1.94 GiB/s | 15.08x | 2.13x |
-| `33B_unaligned` | 266.98 MiB/s | **3.22 GiB/s** | 1.56 GiB/s | 12.34x | 2.06x |
-| `31B_remainder` | 263.97 MiB/s | **3.25 GiB/s** | 1.14 GiB/s | 12.60x | 2.85x |
-| `17B_small` | 241.61 MiB/s | **1.78 GiB/s** | 854.59 MiB/s | 7.55x | 2.13x |
-| `15B_small` | 233.89 MiB/s | **867.14 MiB/s** | 588.27 MiB/s | 3.71x | 1.47x |
-| `7B_tiny` | 182.96 MiB/s | **543.70 MiB/s** | 325.10 MiB/s | 2.97x | 1.67x |
-| `3B_tiny` | 117.16 MiB/s | **285.59 MiB/s** | 147.53 MiB/s | 2.44x | 1.94x |
-| `1B_minimal` | 39.36 MiB/s | **107.40 MiB/s** | 52.43 MiB/s | 2.73x | 2.05x |
+| `1MB_aligned` | 335.45 MiB/s | **34.69 GiB/s** | 23.69 GiB/s | 105.91x | 1.46x |
+| `1KB_aligned` | 345.07 MiB/s | **18.05 GiB/s** | 14.48 GiB/s | 53.58x | 1.25x |
+| `96B_aligned` | 310.81 MiB/s | **9.48 GiB/s** | 3.82 GiB/s | 31.23x | 2.48x |
+| `64B_aligned` | 286.09 MiB/s | **6.80 GiB/s** | 1.90 GiB/s | 24.33x | 3.59x |
+| `63B_unaligned` | 299.89 MiB/s | **6.41 GiB/s** | 1.60 GiB/s | 21.89x | 4.00x |
+| `33B_unaligned` | 307.29 MiB/s | **3.35 GiB/s** | 1.58 GiB/s | 11.17x | 2.12x |
+| `31B_remainder` | 301.91 MiB/s | **3.26 GiB/s** | 1.11 GiB/s | 11.07x | 2.94x |
+| `17B_small` | 274.43 MiB/s | **1.81 GiB/s** | 868.78 MiB/s | 6.75x | 2.13x |
+| `15B_small` | 250.62 MiB/s | **880.96 MiB/s** | 592.10 MiB/s | 3.52x | 1.49x |
+| `7B_tiny` | 203.63 MiB/s | **549.34 MiB/s** | 329.78 MiB/s | 2.70x | 1.67x |
+| `3B_tiny` | 121.34 MiB/s | **285.89 MiB/s** | 151.50 MiB/s | 2.36x | 1.89x |
+| `1B_minimal` | 41.82 MiB/s | **111.10 MiB/s** | 52.75 MiB/s | 2.66x | 2.11x |
 
 ## Decode Throughput
 
 | size | hex | muhex | faster-hex | muhex vs hex | muhex vs faster-hex |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `1MB_aligned` | 185.22 MiB/s | **35.39 GiB/s** | 8.67 GiB/s | 195.68x | 4.08x |
-| `1KB_aligned` | 730.07 MiB/s | **48.87 GiB/s** | 8.68 GiB/s | 68.54x | 5.63x |
-| `96B_aligned` | 795.73 MiB/s | **11.77 GiB/s** | 7.29 GiB/s | 15.14x | 1.62x |
-| `64B_aligned` | 792.16 MiB/s | **26.12 GiB/s** | 6.41 GiB/s | 33.77x | 4.07x |
-| `63B_unaligned` | 794.07 MiB/s | **21.28 GiB/s** | 2.74 GiB/s | 27.44x | 7.76x |
-| `33B_unaligned` | 778.79 MiB/s | **10.57 GiB/s** | 4.20 GiB/s | 13.90x | 2.52x |
-| `31B_remainder` | 787.81 MiB/s | **11.25 GiB/s** | 1.56 GiB/s | 14.62x | 7.19x |
-| `17B_small` | 775.66 MiB/s | **6.15 GiB/s** | 1.33 GiB/s | 8.12x | 4.62x |
-| `15B_small` | 768.59 MiB/s | **5.45 GiB/s** | 1.01 GiB/s | 7.26x | 5.39x |
-| `7B_tiny` | 736.88 MiB/s | **1.14 GiB/s** | 641.94 MiB/s | 1.58x | 1.82x |
-| `3B_tiny` | 683.83 MiB/s | **829.69 MiB/s** | 468.48 MiB/s | 1.21x | 1.77x |
-| `1B_minimal` | **530.57 MiB/s** | 388.19 MiB/s | 239.12 MiB/s | 0.73x | 1.62x |
+| `1MB_aligned` | 191.01 MiB/s | **38.06 GiB/s** | 9.09 GiB/s | 204.05x | 4.19x |
+| `1KB_aligned` | 718.70 MiB/s | **48.52 GiB/s** | 8.80 GiB/s | 69.13x | 5.52x |
+| `96B_aligned` | 778.13 MiB/s | **32.03 GiB/s** | 7.39 GiB/s | 42.16x | 4.34x |
+| `64B_aligned` | 819.18 MiB/s | **28.95 GiB/s** | 6.44 GiB/s | 36.19x | 4.49x |
+| `63B_unaligned` | 815.45 MiB/s | **21.45 GiB/s** | 2.76 GiB/s | 26.93x | 7.77x |
+| `33B_unaligned` | 754.30 MiB/s | **11.17 GiB/s** | 4.25 GiB/s | 15.17x | 2.63x |
+| `31B_remainder` | 815.27 MiB/s | **11.37 GiB/s** | 1.58 GiB/s | 14.28x | 7.19x |
+| `17B_small` | 794.58 MiB/s | **6.26 GiB/s** | 1.37 GiB/s | 8.07x | 4.57x |
+| `15B_small` | 766.48 MiB/s | **5.44 GiB/s** | 1.07 GiB/s | 7.26x | 5.08x |
+| `7B_tiny` | 744.28 MiB/s | **1.15 GiB/s** | 641.94 MiB/s | 1.59x | 1.84x |
+| `3B_tiny` | 595.30 MiB/s | **843.57 MiB/s** | 466.95 MiB/s | 1.42x | 1.81x |
+| `1B_minimal` | **404.46 MiB/s** | 368.61 MiB/s | 244.05 MiB/s | 0.91x | 1.51x |
