@@ -26,6 +26,13 @@ pub use buf::*;
 
 const HEX_ENCODE_LUT: [u8; 16] = *b"0123456789abcdef";
 
+#[cfg(target_arch = "x86_64")]
+#[repr(align(16))]
+struct Aligned16([u8; 16]);
+
+#[cfg(target_arch = "x86_64")]
+static HEX_ENCODE_LUT_ALIGNED: Aligned16 = Aligned16(HEX_ENCODE_LUT);
+
 // ─── Encode: x86_64 PSHUFB-based fast paths ────────────────────────────
 
 #[cfg(target_arch = "x86_64")]
@@ -35,8 +42,8 @@ fn encode_simd_64(input: &[u8], output: &mut [MaybeUninit<u8>]) {
     unsafe {
         let raw = _mm512_loadu_si512(input.as_ptr().cast());
         let mask = _mm512_set1_epi8(0x0F);
-        let lut = _mm512_broadcast_i32x4(_mm_loadu_si128(
-            HEX_ENCODE_LUT.as_ptr().cast(),
+        let lut = _mm512_broadcast_i32x4(_mm_load_si128(
+            HEX_ENCODE_LUT_ALIGNED.0.as_ptr().cast(),
         ));
 
         // Extract nibbles
@@ -88,8 +95,8 @@ fn encode_simd_32(input: &[u8], output: &mut [MaybeUninit<u8>]) {
     unsafe {
         let raw = _mm256_loadu_si256(input.as_ptr().cast());
         let mask = _mm256_set1_epi8(0x0F);
-        let lut = _mm256_broadcastsi128_si256(_mm_loadu_si128(
-            HEX_ENCODE_LUT.as_ptr().cast(),
+        let lut = _mm256_broadcastsi128_si256(_mm_load_si128(
+            HEX_ENCODE_LUT_ALIGNED.0.as_ptr().cast(),
         ));
 
         // Extract nibbles
@@ -119,7 +126,7 @@ fn encode_simd_16(input: &[u8], output: &mut [MaybeUninit<u8>]) {
     unsafe {
         let raw = _mm_loadu_si128(input.as_ptr().cast());
         let mask = _mm_set1_epi8(0x0F);
-        let lut = _mm_loadu_si128(HEX_ENCODE_LUT.as_ptr().cast());
+        let lut = _mm_load_si128(HEX_ENCODE_LUT_ALIGNED.0.as_ptr().cast());
 
         let hi = _mm_and_si128(_mm_srli_epi16(raw, 4), mask);
         let lo = _mm_and_si128(raw, mask);
