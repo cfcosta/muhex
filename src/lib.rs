@@ -410,14 +410,11 @@ unsafe fn decode_x86_128(
         let words0 = _mm512_maddubs_epi16(nib0, merge);
         let words1 = _mm512_maddubs_epi16(nib1, merge);
 
-        let packed = _mm512_packus_epi16(words0, words1);
+        let bytes0 = _mm512_cvtepi16_epi8(words0);
+        let bytes1 = _mm512_cvtepi16_epi8(words1);
 
-        // Fix lane ordering: vpackuswb interleaves per 128-bit lane.
-        // Qword permutation: [0, 2, 4, 6, 1, 3, 5, 7]
-        let perm = _mm512_set_epi64(7, 5, 3, 1, 6, 4, 2, 0);
-        let result = _mm512_permutexvar_epi64(perm, packed);
-
-        _mm512_storeu_si512(output.cast(), result);
+        _mm256_storeu_si256(output.cast(), bytes0);
+        _mm256_storeu_si256(output.add(32).cast(), bytes1);
         true
     }
 }
