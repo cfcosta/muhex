@@ -591,17 +591,18 @@ where
 {
     let input = input.as_bytes();
     let input_len = input.len();
-    if input_len & 1 != 0 {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            "hex string length must be even",
-        ));
-    }
-    let expected_len = input_len >> 1;
 
     // SAFETY: We only write fully initialized bytes through decode_into
     let output = unsafe { output.dst() };
-    if output.len() != expected_len {
+    if input_len != (output.len() << 1) {
+        if input_len & 1 != 0 {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "hex string length must be even",
+            ));
+        }
+
+        let expected_len = input_len >> 1;
         return Err(Error::new(
             ErrorKind::InvalidInput,
             format!(
