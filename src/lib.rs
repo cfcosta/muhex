@@ -590,7 +590,15 @@ where
     Dst: Buf + ?Sized,
 {
     let input = input.as_bytes();
-    let expected_len = required_output_len(input.len())?;
+    let input_len = input.len();
+    if input_len & 1 != 0 {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "hex string length must be even",
+        ));
+    }
+    let expected_len = input_len >> 1;
+
     // SAFETY: We only write fully initialized bytes through decode_into
     let output = unsafe { output.dst() };
     if output.len() != expected_len {
@@ -633,18 +641,6 @@ pub fn decode(input: &str) -> Result<Vec<u8>, Error> {
     decode_into(input, output.spare_capacity_mut())?;
     unsafe { output.set_len(n / 2) };
     Ok(output)
-}
-
-#[inline(always)]
-fn required_output_len(input_len: usize) -> Result<usize, Error> {
-    if input_len % 2 != 0 {
-        Err(Error::new(
-            ErrorKind::InvalidInput,
-            "hex string length must be even",
-        ))
-    } else {
-        Ok(input_len / 2)
-    }
 }
 
 const HEX_DECODE_LUT: [u8; 256] = {
