@@ -37,10 +37,13 @@ static HEX_ENCODE_LUT_ALIGNED: Aligned16 = Aligned16(HEX_ENCODE_LUT);
 
 #[cfg(target_arch = "x86_64")]
 #[inline(always)]
-fn encode_simd_64(input: &[u8], output: &mut [MaybeUninit<u8>]) {
+unsafe fn encode_simd_64(
+    input: *const u8,
+    output: *mut MaybeUninit<u8>,
+) {
     // Process 64 input bytes → 128 output bytes using AVX-512
     unsafe {
-        let raw = _mm512_loadu_si512(input.as_ptr().cast());
+        let raw = _mm512_loadu_si512(input.cast());
         let mask = _mm512_set1_epi8(0x0F);
         let lut = _mm512_broadcast_i32x4(_mm_load_si128(
             HEX_ENCODE_LUT_ALIGNED.0.as_ptr().cast(),
@@ -81,19 +84,19 @@ fn encode_simd_64(input: &[u8], output: &mut [MaybeUninit<u8>]) {
         out_lo = _mm512_permutex2var_epi8(hi_ascii, out_lo, lo_ascii);
         out_hi = _mm512_permutex2var_epi8(hi_ascii, out_hi, lo_ascii);
 
-        _mm512_storeu_si512(output.as_mut_ptr().cast(), out_lo);
-        _mm512_storeu_si512(
-            output.as_mut_ptr().add(64).cast(),
-            out_hi,
-        );
+        _mm512_storeu_si512(output.cast(), out_lo);
+        _mm512_storeu_si512(output.add(64).cast(), out_hi);
     }
 }
 
 #[cfg(target_arch = "x86_64")]
 #[inline(always)]
-fn encode_simd_32(input: &[u8], output: &mut [MaybeUninit<u8>]) {
+unsafe fn encode_simd_32(
+    input: *const u8,
+    output: *mut MaybeUninit<u8>,
+) {
     unsafe {
-        let raw = _mm256_loadu_si256(input.as_ptr().cast());
+        let raw = _mm256_loadu_si256(input.cast());
         let mask = _mm256_set1_epi8(0x0F);
         let lut = _mm256_broadcastsi128_si256(_mm_load_si128(
             HEX_ENCODE_LUT_ALIGNED.0.as_ptr().cast(),
@@ -115,16 +118,19 @@ fn encode_simd_32(input: &[u8], output: &mut [MaybeUninit<u8>]) {
         let final_hi =
             _mm256_permute2x128_si256(interleaved_lo, interleaved_hi, 0x31);
 
-        _mm256_storeu_si256(output.as_mut_ptr().cast(), final_lo);
-        _mm256_storeu_si256(output.as_mut_ptr().add(32).cast(), final_hi);
+        _mm256_storeu_si256(output.cast(), final_lo);
+        _mm256_storeu_si256(output.add(32).cast(), final_hi);
     }
 }
 
 #[cfg(target_arch = "x86_64")]
 #[inline(always)]
-fn encode_simd_16(input: &[u8], output: &mut [MaybeUninit<u8>]) {
+unsafe fn encode_simd_16(
+    input: *const u8,
+    output: *mut MaybeUninit<u8>,
+) {
     unsafe {
-        let raw = _mm_loadu_si128(input.as_ptr().cast());
+        let raw = _mm_loadu_si128(input.cast());
         let mask = _mm_set1_epi8(0x0F);
         let lut = _mm_load_si128(HEX_ENCODE_LUT_ALIGNED.0.as_ptr().cast());
 
@@ -137,8 +143,8 @@ fn encode_simd_16(input: &[u8], output: &mut [MaybeUninit<u8>]) {
         let interleaved_lo = _mm_unpacklo_epi8(hi_ascii, lo_ascii);
         let interleaved_hi = _mm_unpackhi_epi8(hi_ascii, lo_ascii);
 
-        _mm_storeu_si128(output.as_mut_ptr().cast(), interleaved_lo);
-        _mm_storeu_si128(output.as_mut_ptr().add(16).cast(), interleaved_hi);
+        _mm_storeu_si128(output.cast(), interleaved_lo);
+        _mm_storeu_si128(output.add(16).cast(), interleaved_hi);
     }
 }
 
@@ -275,39 +281,60 @@ where
 
     let mut pos = 0;
 
-    // Main loop: process 64 bytes at a time on x86_64 (AVX-512)
     #[cfg(target_arch = "x86_64")]
-    while pos + 64 <= data.len() {
-        encode_simd_64(
-            &data[pos..pos + 64],
-            &mut dst[pos * 2..(pos + 64) * 2],
-        );
-        pos += 64;
-    }
+    unsafe {
+        let input = data.as_ptr();
+        let output = dst.as_mut_ptr();
 
-    // Process remaining 32-byte chunks
-    while pos + 32 <= data.len() {
-        encode_simd_32(&data[pos..pos + 32], &mut dst[pos * 2..(pos + 32) * 2]);
-        pos += 32;
-    }
+        while pos + 64 <= data.len() {
+            encode_simd_64(input.add(pos), output.add(pos * 2));
+            pos += 64;
+        }
 
-    // Handle remainder with overlapping SIMD reads to avoid
-    // the scalar fallback for inputs >= 16 bytes
-    if pos < data.len() {
-        if data.len() >= 32 {
-            // Re-encode last 32 bytes with overlapping SIMD
-            let start = data.len() - 32;
-            encode_simd_32(&data[start..], &mut dst[start * 2..]);
-        } else if data.len() >= 16 {
-            // 16-31 bytes: one 16-byte SIMD + overlapping 16
-            encode_simd_16(&data[0..16], &mut dst[0..32]);
-            if data.len() > 16 {
-                let start = data.len() - 16;
-                encode_simd_16(&data[start..], &mut dst[start * 2..]);
+        while pos + 32 <= data.len() {
+            encode_simd_32(input.add(pos), output.add(pos * 2));
+            pos += 32;
+        }
+
+        if pos < data.len() {
+            if data.len() >= 32 {
+                let start = data.len() - 32;
+                encode_simd_32(input.add(start), output.add(start * 2));
+            } else if data.len() >= 16 {
+                encode_simd_16(input, output);
+                if data.len() > 16 {
+                    let start = data.len() - 16;
+                    encode_simd_16(input.add(start), output.add(start * 2));
+                }
+            } else {
+                encode_scalar(&data[pos..], &mut dst[pos * 2..]);
             }
-        } else {
-            // < 16 bytes: scalar fallback
-            encode_scalar(&data[pos..], &mut dst[pos * 2..]);
+        }
+    }
+
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        while pos + 32 <= data.len() {
+            encode_simd_32(
+                &data[pos..pos + 32],
+                &mut dst[pos * 2..(pos + 32) * 2],
+            );
+            pos += 32;
+        }
+
+        if pos < data.len() {
+            if data.len() >= 32 {
+                let start = data.len() - 32;
+                encode_simd_32(&data[start..], &mut dst[start * 2..]);
+            } else if data.len() >= 16 {
+                encode_simd_16(&data[0..16], &mut dst[0..32]);
+                if data.len() > 16 {
+                    let start = data.len() - 16;
+                    encode_simd_16(&data[start..], &mut dst[start * 2..]);
+                }
+            } else {
+                encode_scalar(&data[pos..], &mut dst[pos * 2..]);
+            }
         }
     }
 
