@@ -1,6 +1,3 @@
-#![feature(portable_simd)]
-#![cfg_attr(target_arch = "x86_64", feature(stdarch_x86_avx512))]
-
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 use std::{
