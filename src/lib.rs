@@ -10,8 +10,7 @@ use std::{
 
 #[cfg(not(target_arch = "x86_64"))]
 use std::simd::{
-    LaneCount, Simd, SupportedLaneCount, cmp::SimdPartialOrd, simd_swizzle,
-    u8x16, u8x32, u8x64,
+    cmp::SimdPartialOrd, simd_swizzle, u8x16, u8x32, u8x64, Select, Simd,
 };
 
 #[cfg(not(target_arch = "x86_64"))]
@@ -37,10 +36,7 @@ static HEX_ENCODE_LUT_ALIGNED: Aligned16 = Aligned16(HEX_ENCODE_LUT);
 
 #[cfg(target_arch = "x86_64")]
 #[inline(always)]
-unsafe fn encode_simd_64(
-    input: *const u8,
-    output: *mut MaybeUninit<u8>,
-) {
+unsafe fn encode_simd_64(input: *const u8, output: *mut MaybeUninit<u8>) {
     // Process 64 input bytes → 128 output bytes using AVX-512
     unsafe {
         let raw = _mm512_loadu_si512(input.cast());
@@ -66,17 +62,17 @@ unsafe fn encode_simd_64(
         // vpermi2b uses 7-bit indices: bit 6 selects source (0=first, 1=second)
         let perm_lo = _mm512_set_epi8(
             // Bytes 63..0 (set_epi8 is high-to-low)
-            95, 31, 94, 30, 93, 29, 92, 28, 91, 27, 90, 26, 89, 25, 88, 24,
-            87, 23, 86, 22, 85, 21, 84, 20, 83, 19, 82, 18, 81, 17, 80, 16,
-            79, 15, 78, 14, 77, 13, 76, 12, 75, 11, 74, 10, 73, 9, 72, 8,
-            71, 7, 70, 6, 69, 5, 68, 4, 67, 3, 66, 2, 65, 1, 64, 0,
+            95, 31, 94, 30, 93, 29, 92, 28, 91, 27, 90, 26, 89, 25, 88, 24, 87,
+            23, 86, 22, 85, 21, 84, 20, 83, 19, 82, 18, 81, 17, 80, 16, 79, 15,
+            78, 14, 77, 13, 76, 12, 75, 11, 74, 10, 73, 9, 72, 8, 71, 7, 70, 6,
+            69, 5, 68, 4, 67, 3, 66, 2, 65, 1, 64, 0,
         );
         let perm_hi = _mm512_set_epi8(
-            127, 63, 126, 62, 125, 61, 124, 60, 123, 59, 122, 58, 121, 57,
-            120, 56, 119, 55, 118, 54, 117, 53, 116, 52, 115, 51, 114, 50,
-            113, 49, 112, 48, 111, 47, 110, 46, 109, 45, 108, 44, 107, 43,
-            106, 42, 105, 41, 104, 40, 103, 39, 102, 38, 101, 37, 100, 36,
-            99, 35, 98, 34, 97, 33, 96, 32,
+            127, 63, 126, 62, 125, 61, 124, 60, 123, 59, 122, 58, 121, 57, 120,
+            56, 119, 55, 118, 54, 117, 53, 116, 52, 115, 51, 114, 50, 113, 49,
+            112, 48, 111, 47, 110, 46, 109, 45, 108, 44, 107, 43, 106, 42, 105,
+            41, 104, 40, 103, 39, 102, 38, 101, 37, 100, 36, 99, 35, 98, 34,
+            97, 33, 96, 32,
         );
 
         let mut out_lo = perm_lo;
@@ -91,10 +87,7 @@ unsafe fn encode_simd_64(
 
 #[cfg(target_arch = "x86_64")]
 #[inline(always)]
-unsafe fn encode_simd_32(
-    input: *const u8,
-    output: *mut MaybeUninit<u8>,
-) {
+unsafe fn encode_simd_32(input: *const u8, output: *mut MaybeUninit<u8>) {
     unsafe {
         let raw = _mm256_loadu_si256(input.cast());
         let mask = _mm256_set1_epi8(0x0F);
@@ -125,10 +118,7 @@ unsafe fn encode_simd_32(
 
 #[cfg(target_arch = "x86_64")]
 #[inline(always)]
-unsafe fn encode_simd_16(
-    input: *const u8,
-    output: *mut MaybeUninit<u8>,
-) {
+unsafe fn encode_simd_16(input: *const u8, output: *mut MaybeUninit<u8>) {
     unsafe {
         let raw = _mm_loadu_si128(input.cast());
         let mask = _mm_set1_epi8(0x0F);
@@ -165,12 +155,16 @@ fn encode_simd_32(input: &[u8], output: &mut [MaybeUninit<u8>]) {
     let hi_ascii = nibble_to_ascii_32(high_nibble, bias_0, bias_a, cmp_9);
     let lo_ascii = nibble_to_ascii_32(low_nibble, bias_0, bias_a, cmp_9);
 
-    let interleaved: u8x64 = simd_swizzle!(hi_ascii, lo_ascii, [
-        0, 32, 1, 33, 2, 34, 3, 35, 4, 36, 5, 37, 6, 38, 7, 39, 8, 40, 9,
-        41, 10, 42, 11, 43, 12, 44, 13, 45, 14, 46, 15, 47, 16, 48, 17, 49,
-        18, 50, 19, 51, 20, 52, 21, 53, 22, 54, 23, 55, 24, 56, 25, 57, 26,
-        58, 27, 59, 28, 60, 29, 61, 30, 62, 31, 63
-    ]);
+    let interleaved: u8x64 = simd_swizzle!(
+        hi_ascii,
+        lo_ascii,
+        [
+            0, 32, 1, 33, 2, 34, 3, 35, 4, 36, 5, 37, 6, 38, 7, 39, 8, 40, 9,
+            41, 10, 42, 11, 43, 12, 44, 13, 45, 14, 46, 15, 47, 16, 48, 17, 49,
+            18, 50, 19, 51, 20, 52, 21, 53, 22, 54, 23, 55, 24, 56, 25, 57, 26,
+            58, 27, 59, 28, 60, 29, 61, 30, 62, 31, 63
+        ]
+    );
 
     let interleaved: &[u8; 64] = interleaved.as_array();
     let uninit_src: &[MaybeUninit<u8>; 64] =
@@ -193,10 +187,14 @@ fn encode_simd_16(input: &[u8], output: &mut [MaybeUninit<u8>]) {
     let hi_ascii = nibble_to_ascii(high_nibble, bias_0, bias_a, cmp_9);
     let lo_ascii = nibble_to_ascii(low_nibble, bias_0, bias_a, cmp_9);
 
-    let interleaved: u8x32 = simd_swizzle!(hi_ascii, lo_ascii, [
-        0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23, 8, 24, 9,
-        25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31
-    ]);
+    let interleaved: u8x32 = simd_swizzle!(
+        hi_ascii,
+        lo_ascii,
+        [
+            0, 16, 1, 17, 2, 18, 3, 19, 4, 20, 5, 21, 6, 22, 7, 23, 8, 24, 9,
+            25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31
+        ]
+    );
 
     let interleaved: &[u8; 32] = interleaved.as_array();
     let uninit_src: &[MaybeUninit<u8>; 32] =
@@ -364,16 +362,19 @@ static HEX_DECODE_VPERMI2B_LO: Aligned64 = Aligned64([
     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // 0x20..0x27
     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // 0x28..0x2F
     0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, // 0x30..0x37 '0'..'7'
-    0x08, 0x09, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // 0x38..0x3F '8','9',invalid
+    0x08, 0x09, 0x80, 0x80, 0x80, 0x80, 0x80,
+    0x80, // 0x38..0x3F '8','9',invalid
 ]);
 
 #[cfg(target_arch = "x86_64")]
 static HEX_DECODE_VPERMI2B_HI: Aligned64 = Aligned64([
-    0x80, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x80, // 0x00..0x07 'A'..'F' at 01..06
+    0x80, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+    0x80, // 0x00..0x07 'A'..'F' at 01..06
     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // 0x08..0x0F
     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // 0x10..0x17
     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // 0x18..0x1F
-    0x80, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x80, // 0x20..0x27 'a'..'f' at 21..26
+    0x80, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+    0x80, // 0x20..0x27 'a'..'f' at 21..26
     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // 0x28..0x2F
     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // 0x30..0x37
     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, // 0x38..0x3F
@@ -388,8 +389,10 @@ unsafe fn decode_x86_128(
     output: *mut MaybeUninit<u8>,
 ) -> bool {
     unsafe {
-        let lut_lo = _mm512_load_si512(HEX_DECODE_VPERMI2B_LO.0.as_ptr().cast());
-        let lut_hi = _mm512_load_si512(HEX_DECODE_VPERMI2B_HI.0.as_ptr().cast());
+        let lut_lo =
+            _mm512_load_si512(HEX_DECODE_VPERMI2B_LO.0.as_ptr().cast());
+        let lut_hi =
+            _mm512_load_si512(HEX_DECODE_VPERMI2B_HI.0.as_ptr().cast());
         let sentinel = _mm512_set1_epi8(0x80u8 as i8);
         let merge = _mm512_set1_epi16(0x0110);
 
@@ -427,8 +430,10 @@ unsafe fn decode_x86_64(
     output: *mut MaybeUninit<u8>,
 ) -> bool {
     unsafe {
-        let lut_lo = _mm512_load_si512(HEX_DECODE_VPERMI2B_LO.0.as_ptr().cast());
-        let lut_hi = _mm512_load_si512(HEX_DECODE_VPERMI2B_HI.0.as_ptr().cast());
+        let lut_lo =
+            _mm512_load_si512(HEX_DECODE_VPERMI2B_LO.0.as_ptr().cast());
+        let lut_hi =
+            _mm512_load_si512(HEX_DECODE_VPERMI2B_HI.0.as_ptr().cast());
         let sentinel = _mm512_set1_epi8(0x80u8 as i8);
         let merge = _mm512_set1_epi16(0x0110);
 
@@ -478,26 +483,26 @@ unsafe fn decode_x86_32(
         let lo_nib = _mm256_and_si256(v, mask_0f);
 
         let offset_lut = _mm256_broadcastsi128_si256(_mm_setr_epi8(
-            0, 0, 0, -0x30i8,
-            -0x37i8, 0, -0x57i8, 0,
-            0, 0, 0, 0,
-            0, 0, 0, 0,
+            0, 0, 0, -0x30i8, -0x37i8, 0, -0x57i8, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ));
 
         // Max low nibble LUT: invalid classes get 0, with min=0xFF,
         // so no lo_nib can satisfy min <= lo_nib <= max.
         let maxlo_lut = _mm256_broadcastsi128_si256(_mm_setr_epi8(
-            0, 0, 0, 9,          // hi=0-3: invalid×3, '0'-'9' max lo=9
-            6, 0, 6, 0,          // hi=4-7: 'A'-'F' max lo=6, invalid, 'a'-'f' max lo=6, invalid
-            0, 0, 0, 0,          // hi=8-B: invalid
-            0, 0, 0, 0,          // hi=C-F: invalid
+            0, 0, 0, 9, // hi=0-3: invalid×3, '0'-'9' max lo=9
+            6, 0, 6,
+            0, // hi=4-7: 'A'-'F' max lo=6, invalid, 'a'-'f' max lo=6, invalid
+            0, 0, 0, 0, // hi=8-B: invalid
+            0, 0, 0, 0, // hi=C-F: invalid
         ));
 
         let minlo_lut = _mm256_broadcastsi128_si256(_mm_setr_epi8(
-            -1, -1, -1, 0,       // hi=0-3: invalid(min=0xFF)×3, '0'-'9' min lo=0
-            1, -1, 1, -1,        // hi=4-7: 'A'-'F' min lo=1, invalid(0xFF), 'a'-'f' min lo=1, invalid(0xFF)
-            -1, -1, -1, -1,      // hi=8-B: invalid
-            -1, -1, -1, -1,      // hi=C-F: invalid
+            -1, -1, -1,
+            0, // hi=0-3: invalid(min=0xFF)×3, '0'-'9' min lo=0
+            1, -1, 1,
+            -1, // hi=4-7: 'A'-'F' min lo=1, invalid(0xFF), 'a'-'f' min lo=1, invalid(0xFF)
+            -1, -1, -1, -1, // hi=8-B: invalid
+            -1, -1, -1, -1, // hi=C-F: invalid
         ));
 
         let offsets = _mm256_shuffle_epi8(offset_lut, hi_nib);
@@ -539,24 +544,14 @@ unsafe fn decode_x86_16(
         let lo_nib = _mm_and_si128(v, mask_0f);
 
         let offset_lut = _mm_setr_epi8(
-            0, 0, 0, -0x30i8,
-            -0x37i8, 0, -0x57i8, 0,
-            0, 0, 0, 0,
-            0, 0, 0, 0,
+            0, 0, 0, -0x30i8, -0x37i8, 0, -0x57i8, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         );
 
-        let maxlo_lut = _mm_setr_epi8(
-            0, 0, 0, 9,
-            6, 0, 6, 0,
-            0, 0, 0, 0,
-            0, 0, 0, 0,
-        );
+        let maxlo_lut =
+            _mm_setr_epi8(0, 0, 0, 9, 6, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
         let minlo_lut = _mm_setr_epi8(
-            -1, -1, -1, 0,
-            1, -1, 1, -1,
-            -1, -1, -1, -1,
-            -1, -1, -1, -1,
+            -1, -1, -1, 0, 1, -1, 1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
         );
 
         let offsets = _mm_shuffle_epi8(offset_lut, hi_nib);
@@ -778,9 +773,7 @@ fn decode_into(
         } else {
             // < 16 hex bytes: scalar LUT fallback
             let remaining = n - pos;
-            decode_remainder_lut(
-                input, output, pos, out_pos, remaining,
-            )?;
+            decode_remainder_lut(input, output, pos, out_pos, remaining)?;
         }
     }
 
@@ -796,14 +789,20 @@ fn decode_simd_64(
 ) -> Result<(), Error> {
     let chunk_vec: SimdU8<64> = Simd::from_slice(input);
 
-    let high_bytes: SimdU8<32> = simd_swizzle!(chunk_vec, [
-        0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34,
-        36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62
-    ]);
-    let low_bytes: SimdU8<32> = simd_swizzle!(chunk_vec, [
-        1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35,
-        37, 39, 41, 43, 45, 47, 49, 51, 53, 55, 57, 59, 61, 63
-    ]);
+    let high_bytes: SimdU8<32> = simd_swizzle!(
+        chunk_vec,
+        [
+            0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34,
+            36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62
+        ]
+    );
+    let low_bytes: SimdU8<32> = simd_swizzle!(
+        chunk_vec,
+        [
+            1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35,
+            37, 39, 41, 43, 45, 47, 49, 51, 53, 55, 57, 59, 61, 63
+        ]
+    );
 
     let (high_nibbles, high_valid) = decode_hex_nibbles(high_bytes);
     let (low_nibbles, low_valid) = decode_hex_nibbles(low_bytes);
@@ -827,12 +826,14 @@ fn decode_simd_32(
     output: &mut [MaybeUninit<u8>],
 ) -> Result<(), Error> {
     let chunk_vec: SimdU8<32> = Simd::from_slice(input);
-    let high_bytes: SimdU8<16> = simd_swizzle!(chunk_vec, [
-        0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30
-    ]);
-    let low_bytes: SimdU8<16> = simd_swizzle!(chunk_vec, [
-        1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31
-    ]);
+    let high_bytes: SimdU8<16> = simd_swizzle!(
+        chunk_vec,
+        [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30]
+    );
+    let low_bytes: SimdU8<16> = simd_swizzle!(
+        chunk_vec,
+        [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31]
+    );
 
     let (high_nibbles, high_valid) = decode_hex_nibbles(high_bytes);
     let (low_nibbles, low_valid) = decode_hex_nibbles(low_bytes);
@@ -918,10 +919,7 @@ fn decode_into(
 #[inline(always)]
 fn decode_hex_nibbles<const LANES: usize>(
     n: SimdU8<LANES>,
-) -> (SimdU8<LANES>, bool)
-where
-    LaneCount<LANES>: SupportedLaneCount,
-{
+) -> (SimdU8<LANES>, bool) {
     let zero = SimdU8::<LANES>::splat(b'0');
     let nine = SimdU8::<LANES>::splat(b'9');
     let upper_a = SimdU8::<LANES>::splat(b'A');
@@ -1019,7 +1017,7 @@ mod tests {
     /// rejected as invalid hex. These sit in the gap between '9' and 'A'.
     #[test]
     fn test_decode_rejects_gap_chars_in_simd_path() {
-        for ch in b':' ..= b'@' {
+        for ch in b':'..=b'@' {
             // 64-char input exercises the 64-byte SIMD decode path
             let mut input = vec![b'0'; 64];
             input[0] = ch;
@@ -1037,7 +1035,7 @@ mod tests {
     /// Verify gap char rejection also works in the 32-byte SIMD path
     #[test]
     fn test_decode_rejects_gap_chars_in_32byte_path() {
-        for ch in b':' ..= b'@' {
+        for ch in b':'..=b'@' {
             // 32-char input exercises the 32-byte SIMD decode path
             let mut input = vec![b'0'; 32];
             input[0] = ch;
