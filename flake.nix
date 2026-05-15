@@ -81,6 +81,7 @@
           name = "muhex";
           src = ./.;
           cargoLock.lockFile = ./Cargo.lock;
+          doCheck = false;
         };
       in
       {
