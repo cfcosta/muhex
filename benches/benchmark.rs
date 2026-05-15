@@ -1,11 +1,7 @@
 use std::time::Duration;
 
 use criterion::{
-    BenchmarkId,
-    Criterion,
-    Throughput,
-    black_box,
-    criterion_group,
+    BenchmarkId, Criterion, Throughput, black_box, criterion_group,
     criterion_main,
 };
 

@@ -7,7 +7,7 @@ use std::{
 
 #[cfg(not(target_arch = "x86_64"))]
 use std::simd::{
-    cmp::SimdPartialOrd, simd_swizzle, u8x16, u8x32, u8x64, Select, Simd,
+    Select, Simd, cmp::SimdPartialOrd, simd_swizzle, u8x16, u8x32, u8x64,
 };
 
 #[cfg(not(target_arch = "x86_64"))]
